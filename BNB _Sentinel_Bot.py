@@ -1,281 +1,193 @@
-import time, requests, feedparser, threading, os, json,pytz, schedule, telebot
-from datetime import datetime, timedelta
+import time
+import requests
+import feedparser
+import threading
+import os
+import json
+import schedule
+import telebot
+import pytz
+from datetime import datetime
 from dotenv import load_dotenv
 
-
 # ==========================================
-# 1. CONFIGURACIÓN Y PERSISTENCIA (CORREGIDO)
+# 1. CLASE PRINCIPAL: FINANCIAL BOT
 # ==========================================
-load_dotenv()
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-if not TOKEN:
-    raise ValueError("¡Error! No se encontró el TOKEN en el archivo .env")
+class FinancialBot:
+    def __init__(self):
+        load_dotenv()
+        self.token = os.getenv('TELEGRAM_TOKEN')
+        self.bot = telebot.TeleBot(self.token)
+        self.archivo_usuarios = "usuarios.json"
+        self.usuarios_activos = self._cargar_usuarios()
+        self.noticias_enviadas = set()
+        self.session = requests.Session()
+        
+        # Zona horaria maestra
+        self.tz = pytz.timezone('Europe/Madrid')
 
-bot = telebot.TeleBot(TOKEN)
-noticias_enviadas = set()
+        # Configuración
+        self.keywords = {
+    # === GEOPOLÍTICA Y MACRO (ALTO IMPACTO) ===
+    'guerra': 5, 'conflicto': 4, 'misil': 5, 'ataque': 5,
+    'sanciones': 4, 'petróleo': 3, 'brent': 3, 'tensión': 3,
+    'escalada': 4, 'frontera': 3, 'taiwan': 4, 'israel': 4,
+    'iran': 5, 'hormuz': 5, 'otan': 4, 'nato': 4,
 
-# Cargar usuarios asegurando que el archivo existe y es legible
-ARCHIVO_USUARIOS = "usuarios.json"
+    # === ENTORNO TRUMP (POLÍTICA USA) ===
+    'trump': 5, 'aranceles': 5, 'tariffs': 5, 'discurso': 6,
+    'habla': 6, 'decreto': 5, 'casa blanca': 4, 'white house': 4,
+    'elecciones': 3, 'senado': 3, 'republicanos': 3,
 
-def cargar_usuarios():
-    if not os.path.exists(ARCHIVO_USUARIOS):
-        with open(ARCHIVO_USUARIOS, "w") as f:
-            json.dump([], f)
-        return set()
-    try:
-        with open(ARCHIVO_USUARIOS, "r") as f:
-            data = json.load(f)
-            return set(data) if data else set()
-    except (json.JSONDecodeError, IOError):
-        print("⚠️ Error leyendo usuarios.json, iniciando lista vacía.")
-        return set()
+    # === ECONOMÍA Y FED (MOVIMIENTO DE TASAS) ===
+    'fed': 5, 'powell': 5, 'tasas': 4, 'rates': 4,
+    'inflación': 5, 'inflation': 5, 'cpi': 5, 'ipc': 5,
+    'pib': 4, 'gdp': 4, 'empleo': 3, 'fomc': 5,
+    'recesión': 5, 'recession': 5,
 
-usuarios_activos = cargar_usuarios()
+    # === CRIPTOMONEDAS Y REGULACIÓN ===
+    'sec': 5, 'gensler': 5, 'etf': 4, 'binance': 4,
+    'cz': 3, 'coinbase': 3, 'regulacion': 4, 'prohibición': 5,
+    'hack': 5, 'exploit': 5, 'listing': 4, 'delisting': 5,
+    'halving': 4, 'spot': 3, 'cbdc': 4,
 
-def guardar_usuarios():
-    try:
-        with open(ARCHIVO_USUARIOS, "w") as f:
-            json.dump(list(usuarios_activos), f)
-        # Forzar que el sistema operativo escriba el archivo ahora mismo
-        os.sync() if hasattr(os, 'sync') else f.flush()
-    except IOError as e:
-        print(f"❌ Error crítico escribiendo usuarios: {e}")
-
-# ==========================================
-# 2. KEYWORDS + SCORING
-# ==========================================
-KEYWORDS = {
-    'hormuz': 5, 'trump': 4, 'iran': 4, 'ataque': 5,
-    'militar': 4, 'fed': 5, 'inflación': 5, 'inflation': 5,
-    'binance': 3, 'bnb': 3, 'crypto': 2, 'bitcoin': 2, 'btc': 2,
-    'launchpool': 4, 'burn': 4
+    # === TERMINOLOGÍA DE ALERTA (MULTIPLICADORES) ===
+    'urgente': 6, 'última hora': 6, 'breaking': 6,
+    'atención': 4, 'exclusiva': 4, 'confirmado': 5
 }
+        self.rss_feeds = [
+            "https://es.beincrypto.com/feed/", # Perfil solicitado
+            "https://es.cointelegraph.com/rss",
+            "https://www.investing.com/rss/news_25.rss"
+        ]
 
-def calcular_score(texto):
-    return sum(peso for palabra, peso in KEYWORDS.items() if palabra in texto.lower())
-
-def clasificar_nivel(score):
-    if score >= 8: return "🔴 ALTO IMPACTO"
-    elif score >= 4: return "🟡 IMPACTO MEDIO"
-    return None
-
-# ==========================================
-# 3. FUENTES RSS
-# ==========================================
-RSS_FEEDS = [
-    "https://news.google.com/rss/search?q=crypto&hl=es-419&gl=US&ceid=US:es-419",
-    "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "https://feeds.reuters.com/reuters/businessNews",
-    "https://www.investing.com/rss/news_25.rss"
-]
-
-# ==========================================
-# 4. ENVÍO GLOBAL SEGURO (CON FILTRO FIN DE SEMANA)
-# ==========================================
-def enviar_a_todos(mensaje):
-    if not usuarios_activos:
-        return
-
-    # Bloqueo de alertas de mercado en fin de semana (Sábado=5, Domingo=6)
-    ahora_utc = datetime.utcnow()
-    es_finde = ahora_utc.weekday() >= 5
-    palabras_mercado = ["APERTURA", "CIERRE", "ASIA", "LONDRES", "NEW YORK"]
-    
-    if es_finde and any(x in mensaje for x in palabras_mercado):
-        print(f"💤 Omitiendo alerta de mercado en finde: {mensaje[:30]}...")
-        return
-
-    for user_id in usuarios_activos:
+    # --- Persistencia ---
+    def _cargar_usuarios(self):
+        if not os.path.exists(self.archivo_usuarios): return set()
         try:
-            bot.send_message(user_id, mensaje, parse_mode='Markdown')
-        except Exception as e:
-            print(f"❌ Error enviando a {user_id}: {e}")
+            with open(self.archivo_usuarios, "r") as f: return set(json.load(f))
+        except: return set()
 
-# ==========================================
-# 5. LÓGICA DE NOTICIAS
-# ==========================================
-def buscar_noticias(manual=False, chat_id=None):
-    if not manual:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔎 Búsqueda automática...")
-    
-    global noticias_enviadas
-    encontradas = 0
+    def _guardar_usuarios(self):
+        with open(self.archivo_usuarios, "w") as f: json.dump(list(self.usuarios_activos), f)
 
-    for url in RSS_FEEDS:
+    # --- Precios (API Binance) ---
+    def obtener_precios(self):
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:10]:
-                titulo = entry.title.lower()
-                noticia_id = titulo[:80]
+            url = "https://api.binance.com/api/v3/ticker/price"
+            res = self.session.get(url, timeout=10).json()
+            # Filtramos los símbolos que nos interesan
+            p = {i['symbol']: float(i['price']) for i in res if i['symbol'] in ["BTCUSDT", "ETHUSDT", "BNBUSDT"]}
+            
+            msg = "💰 **ACTUALIZACIÓN DE PRECIOS**\n\n"
+            msg += f"• **BTC**: `${p['BTCUSDT']:,.2f}`\n"
+            msg += f"• **ETH**: `${p['ETHUSDT']:,.2f}`\n"
+            msg += f"• **BNB**: `${p['BNBUSDT']:,.2f}`"
+            return msg
+        except:
+            return "❌ Error al conectar con Binance Square / API."
 
-                if noticia_id in noticias_enviadas:
-                    continue
+    # --- Mercados (Hora España) ---
+    def obtener_estado_mercados(self):
+        ahora_esp = datetime.now(self.tz)
+        if ahora_esp.weekday() > 4:
+            return "💤 **FIN DE SEMANA**\nBolsas cerradas. Criptos operando 24/7."
 
-                score = calcular_score(titulo)
-                nivel = clasificar_nivel(score)
-
-                if nivel:
-                    mensaje = f"{nivel}\n\n📰 *{entry.title}*\n\n📊 Score: {score}\n🔗 [Leer noticia]({entry.link})"
-                    if manual and chat_id:
-                        bot.send_message(chat_id, mensaje, parse_mode='Markdown')
-                    else:
-                        enviar_a_todos(mensaje)
-                    noticias_enviadas.add(noticia_id)
-                    encontradas += 1
-                    if manual and encontradas >= 5: return
-        except Exception as e:
-            print(f"❌ Error RSS {url}: {e}")
-
-# ==========================================
-# 6. ALERTAS DE PRECIOS Y MERCADOS
-# ==========================================
-def alerta_precios_top(symbol_to_check=None):
-    url = "https://api.binance.com/api/v3/ticker/price"
-    symbols_map = {"BTCUSDT": "₿ BTC", "ETHUSDT": "Ξ ETH", "BNBUSDT": "🔶 BNB"}
-    
-    try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        precios = {item['symbol']: float(item['price']) for item in data if item['symbol'] in symbols_map}
+        h_decimal = ahora_esp.hour + ahora_esp.minute / 60.0
+        texto = f"🌍 **MERCADOS (Hora España: {ahora_esp.strftime('%H:%M')})**\n\n"
         
-        # SI LA FUNCIÓN SE LLAMA DESDE UN COMANDO (ej: para obtener un solo precio)
-        if symbol_to_check:
-            # Limpiamos el símbolo por si viene como BTC/USDT
-            clean_symbol = symbol_to_check.replace("/", "")
-            price = precios.get(clean_symbol, "N/A")
-            return f"${price:,.2f}" if price != "N/A" else "Error"
+        # Horarios exactos en hora peninsular
+        fases = [
+            ("🇯🇵 Asia (Tokio)", 1.0, 10.0),
+            ("🇪🇺 Europa (Madrid/Londres)", 9.0, 17.35),
+            ("🇺🇸 EE.UU. (Nueva York)", 15.5, 22.0)
+        ]
 
-        # SI LA FUNCIÓN SE EJECUTA AUTOMÁTICAMENTE (Alerta global)
-        mensaje = "💰 *ACTUALIZACIÓN DE PRECIOS*\n\n"
-        for sym in symbols_map:
-            if sym in precios:
-                mensaje += f"• *{symbols_map[sym]}:* `${precios[sym]:,.2f}`\n"
+        for nombre, abre, cierra in fases:
+            estado = "🟢" if abre <= h_decimal <= cierra else "🔴"
+            texto += f"{estado} **{nombre}**\n"
+
+        if 15.5 <= h_decimal <= 17.58:
+            texto += "\n🔥 **SOLAPAMIENTO DETECTADO**: Máximo volumen NYSE + Europa."
         
-        enviar_a_todos(mensaje)
+        return texto
 
-    except Exception as e:
-        print(f"❌ Error en alerta_precios: {e}")
-        return "Error"
+    # --- Noticias ---
+    def buscar_noticias(self, manual=False, chat_id=None):
+        encontradas = []
+        for url in self.rss_feeds:
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:5]:
+                    titulo = entry.title
+                    if titulo[:90] in self.noticias_enviadas: continue
+                    
+                    score = sum(peso for pal, peso in self.keywords.items() if pal in titulo.lower())
+                    if score >= 4 or "beincrypto" in url:
+                        nivel = "🔴 IMPACTO" if score >= 7 else "🟡 INFO"
+                        msg = f"{nivel}\n📰 *{titulo}*\n🔗 [Ver noticia]({entry.link})"
+                        encontradas.append(msg)
+                        self.noticias_enviadas.add(titulo[:90])
+            except: continue
 
-HORARIOS_MERCADOS = {
-    "Asia (Tokio)": ("00:00", "09:00"),
-    "Europa (Londres)": ("08:00", "16:00"),
-    "EE.UU. (NY)": ("13:00", "21:00"),
-    "Pacífico (Sídney)": ("22:00", "07:00")
-}
+        for m in encontradas[:3]:
+            if manual: self.bot.send_message(chat_id, m, parse_mode='Markdown')
+            else: self.enviar_a_todos(m)
 
-def obtener_estado_mercados():
-    ahora_utc = datetime.utcnow()
-    dia_semana = ahora_utc.weekday()  # 0=Lunes, 5=Sábado, 6=Domingo
-    texto = "📅 *ESTADO DE LOS MERCADOS (UTC)*\n\n"
-    es_finde = dia_semana >= 4 
-
-    for mercado, (abre_str, cierra_str) in HORARIOS_MERCADOS.items():
-        h_abre = int(abre_str.split(':')[0])
-        h_cierra = int(cierra_str.split(':')[0])
-        
-        # Crear objetos de hora para hoy
-        inicio = ahora_utc.replace(hour=h_abre, minute=0, second=0, microsecond=0)
-        fin = ahora_utc.replace(hour=h_cierra, minute=0, second=0, microsecond=0)
-
-        # Ajuste para mercados que cierran al día siguiente (como Sídney o EE.UU.)
-        if h_abre > h_cierra:
-            if ahora_utc.hour >= h_abre:
-                fin += timedelta(days=1)
-            else:
-                inicio -= timedelta(days=1)
-
-        # REGLA DE ORO: Si es fin de semana, nada está abierto
-        if es_finde:
-            estado = "💤 FIN DE SEMANA"
-            # Calcular cuánto falta para el lunes a la hora de apertura
-            dias_para_lunes = (7 - dia_semana)
-            proxima_apertura = inicio.replace(day=ahora_utc.day) + timedelta(days=dias_para_lunes)
-            diff = proxima_apertura - ahora_utc
-            texto += f"• *{mercado}:* {estado}\n  └ ⏳ Abre en: {diff.days}d {diff.seconds//3600}h\n\n"
-        else:
-            # Lógica normal de lunes a viernes
-            abierto = inicio <= ahora_utc < fin
-            if abierto:
-                estado = "🟢 ABIERTO"
-                diff = fin - ahora_utc
-                texto += f"• *{mercado}:* {estado}\n  └ ⏳ Cierra en: {diff.seconds//3600}h {(diff.seconds//60)%60}m\n\n"
-            else:
-                estado = "🔴 CERRADO"
-                if ahora_utc >= fin: inicio += timedelta(days=1)
-                diff = inicio - ahora_utc
-                texto += f"• *{mercado}:* {estado}\n  └ ⏳ Abre en: {diff.seconds//3600}h {(diff.seconds//60)%60}m\n\n"
-    
-    return texto
+    def enviar_a_todos(self, mensaje):
+        for uid in self.usuarios_activos:
+            try: self.bot.send_message(uid, mensaje, parse_mode='Markdown')
+            except: pass
 
 # ==========================================
-# 7. COMANDOS TELEGRAM
+# 2. PLANIFICADOR (HORA ESPAÑA)
 # ==========================================
-@bot.message_handler(commands=['start'])
-def start(message):
-    if message.chat.id not in usuarios_activos:
-        usuarios_activos.add(message.chat.id)
-        guardar_usuarios()
-        bot.send_message(message.chat.id, "✅ Suscripción activada. Recibirás alertas de precios y noticias.")
-    else:
-        bot.send_message(message.chat.id, "ℹ️ Ya estás en la lista de usuarios activos.")
+asistente = FinancialBot()
+bot = asistente.bot
 
-@bot.message_handler(commands=['noticias'])
-def noticias(message):
-    bot.send_message(message.chat.id, "🔎 Buscando noticias de alto impacto...")
-    buscar_noticias(manual=True, chat_id=message.chat.id)
-
-@bot.message_handler(commands=['mercados'])
-def mercados(message):
-    bot.send_message(message.chat.id, obtener_estado_mercados(), parse_mode='Markdown')
-
-@bot.message_handler(commands=['status'])
-def status(message):
-    bot.send_message(message.chat.id, f"📊 *Estado del Bot*\n\n"
-                                      f"👥 Usuarios activos: {len(usuarios_activos)}\n"
-                                      f"⏰ Alertas programadas: {len(schedule.jobs)}"
-                                      , parse_mode='Markdown')
-
-@bot.message_handler(commands=['prices']) # O el comando que tengas
-def prices(message):
-    try:
-        btc_p = alerta_precios_top('BTCUSDT')
-        eth_p = alerta_precios_top('ETHUSDT')
-        bnb_p = alerta_precios_top('BNBUSDT')
-        
-        texto = f"📊 *PRECIOS ACTUALES*\n\n"
-        texto += f"🔶 BTC: `{btc_p}`\n"
-        texto += f"🔶 ETH: `{eth_p}`\n"
-        texto += f"🔶 BNB: `{bnb_p}`"
-        
-        bot.reply_to(message, texto, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Error en comando prices: {e}")
-# ==========================================
-# 8. PLANIFICADOR
-# ==========================================
 def run_schedule():
+    dias_semana = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    
+    # 1. Alerta de Precios Cripto (Cada 1 hora)
+    schedule.every(1).hours.do(lambda: asistente.enviar_a_todos(asistente.obtener_precios()))
+
+    # 2. Aperturas de Mercados (Hora España)
+    for d in dias_semana:
+        getattr(schedule.every(), d).at("09:00").do(
+            asistente.enviar_a_todos, "🇪🇺 **MERCADO ABIERTO**: Madrid y Londres inician sesión.")
+        
+        getattr(schedule.every(), d).at("15:30").do(
+            asistente.enviar_a_todos, "🇺🇸 **WALL STREET ABIERTO**: Nueva York inicia. Máxima volatilidad y solapamiento.")
+
+    # 3. Revisión de Noticias (Cada 15 min)
+    schedule.every(15).minutes.do(asistente.buscar_noticias)
+
     while True:
         schedule.run_pending()
         time.sleep(1)
 
-schedule.every(3).minutes.do(buscar_noticias)
-schedule.every(1).hours.do(alerta_precios_top)
-
-alertas_config = {
-    "00:00": "🌏 *APERTURA ASIA*",
-    "08:00": "🇪🇺 *APERTURA LONDRES*",
-    "13:00": "🇺🇸 *APERTURA NEW YORK*",
-    "21:00": "🔒 *CIERRE NEW YORK*"
-}
-
-for hora, msj in alertas_config.items():
-    schedule.every().day.at(hora).do(enviar_a_todos, f"⏰ {msj}")
-
 # ==========================================
-# 9. EJECUCIÓN
+# 3. COMANDOS TELEGRAM
 # ==========================================
+@bot.message_handler(commands=['start'])
+def cmd_start(m):
+    asistente.usuarios_activos.add(m.chat.id)
+    asistente._guardar_usuarios()
+    bot.reply_to(m, "🚀 **Bot Completo Activo**\n• /prices : Precios Cripto\n• /mercados : Estado de bolsas\n• /noticias : Buscar ahora")
+
+@bot.message_handler(commands=['prices'])
+def cmd_prices(m):
+    bot.send_message(m.chat.id, asistente.obtener_precios(), parse_mode='Markdown')
+
+@bot.message_handler(commands=['mercados'])
+def cmd_mercados(m):
+    bot.send_message(m.chat.id, asistente.obtener_estado_mercados(), parse_mode='Markdown')
+
+@bot.message_handler(commands=['noticias'])
+def cmd_noticias(m):
+    asistente.buscar_noticias(manual=True, chat_id=m.chat.id)
+
 if __name__ == "__main__":
-    print(f"🚀 Bot iniciado. Usuarios registrados: {len(usuarios_activos)}")
+    print("🤖 Bot funcionando con horario de España...")
     threading.Thread(target=run_schedule, daemon=True).start()
     bot.infinity_polling()
