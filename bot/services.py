@@ -59,25 +59,41 @@ def obtener_precios() -> str:
         print(f"Error Binance: {e}")
         return "❌ Error al conectar con Binance API."
 
-def obtener_estado_mercados() -> str:
+from datetime import datetime
+
+def obtener_estado_mercados(tz) -> str:
     ahora_esp = datetime.now(tz)
+    
     if ahora_esp.weekday() > 4:
         return "💤 **FIN DE SEMANA**\nBolsas cerradas. Criptos operando 24/7."
 
     h_decimal = ahora_esp.hour + ahora_esp.minute / 60.0
     texto = f"🌍 **MERCADOS (Hora España: {ahora_esp.strftime('%H:%M')})**\n\n"
     
+    # Formato: ("Nombre", (hora_abre, min_abre), (hora_cierra, min_cierra))
     fases = [
-        ("🇯🇵 Asia (Tokio)", 1.0, 10.0),
-        ("🇪🇺 Europa (Madrid/Londres)", 9.0, 17.35),
-        ("🇺🇸 EE.UU. (Nueva York)", 15.5, 22.0)
+        ("🇯🇵 Asia (Tokio)", (1, 0), (10, 0)),
+        ("🇪🇺 Europa (Madrid/Londres)", (9, 0), (17, 30)), # 17:30 es el cierre de sesión continua
+        ("🇺🇸 EE.UU. (Nueva York)", (15, 30), (22, 0))
     ]
 
-    for nombre, abre, cierra in fases:
-        estado = "🟢" if abre <= h_decimal <= cierra else "🔴"
-        texto += f"{estado} **{nombre}**\n"
+    for nombre, (h_ap, m_ap), (h_ci, m_ci) in fases:
+        # Calculamos el valor decimal dinámicamente para la condición lógica
+        abre_decimal = h_ap + (m_ap / 60.0)
+        cierra_decimal = h_ci + (m_ci / 60.0)
+        
+        # Comprobamos si el mercado está abierto
+        estado = "🟢" if abre_decimal <= h_decimal <= cierra_decimal else "🔴"
+        
+        # Formateamos el horario para que siempre tenga 2 dígitos (ej: 09:00)
+        horario_texto = f"{h_ap:02d}:{m_ap:02d} - {h_ci:02d}:{m_ci:02d}"
+        
+        # Añadimos la información al texto final
+        texto += f"{estado} **{nombre}** ({horario_texto})\n"
 
-    if 15.5 <= h_decimal <= 17.58:
+    # Solapamiento EE.UU y Europa (15:30 a 17:30)
+    # 15:30 = 15.5 | 17:30 = 17.5
+    if 15.5 <= h_decimal <= 17.5:
         texto += "\n🔥 **SOLAPAMIENTO DETECTADO**: Máximo volumen NYSE + Europa."
     
     return texto
