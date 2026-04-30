@@ -1,0 +1,14 @@
+name: Bot Cron Trigger
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Cada 15 minutos
+  workflow_dispatch: # Permite dispararlo manualmente para probar
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel Cron
+        run: |
+          curl -X GET "https://telegram-bot-news.vercel.app/api/cron"
