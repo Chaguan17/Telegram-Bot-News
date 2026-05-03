@@ -61,7 +61,7 @@ def obtener_precios() -> str:
 
 from datetime import datetime
 
-def obtener_estado_mercados(tz) -> str:
+def obtener_estado_mercados(tz=tz) -> str:
     ahora_esp = datetime.now(tz)
     
     if ahora_esp.weekday() > 4:
