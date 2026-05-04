@@ -1,6 +1,6 @@
 # 🤖 BNB Sentinel Bot (Serverless Edition)
 
-Un bot financiero para Telegram diseñado para ejecutarse 100% de manera gratuita en la nube usando una arquitectura orientada a eventos (Serverless). Monitorea precios de criptomonedas, aperturas de mercados globales y filtra noticias RSS de alto impacto.
+Un bot financiero para Telegram diseñado para ejecutarse 100% de manera gratuita en la nube usando una arquitectura orientada a eventos (Serverless). Monitorea precios de criptomonedas, aperturas de mercados globales con lógica inteligente de husos horarios (Market-Aware) y filtra noticias RSS de alto impacto.
 
 ## 🏗 Arquitectura
 
@@ -22,7 +22,8 @@ Para desplegar tu propio bot gratis, sigue estos pasos:
 CREATE TABLE users (
     chat_id BIGINT PRIMARY KEY,
     news_enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    timezone TEXT DEFAULT 'Europe/Madrid'
 );
 
 CREATE TABLE sent_news (
@@ -110,7 +111,8 @@ Si no agregas estos Secrets, el Action de notificación simplemente fallará y n
 - `/subscribe` - Activa las noticias automáticas.
 - `/unsubscribe` - Desactiva las noticias automáticas.
 - `/prices` - Devuelve el precio actual de BTC, ETH y BNB.
-- `/mercados` - Informa qué bolsas mundiales están abiertas en este momento.
+- `/mercados` - Informa qué bolsas mundiales están abiertas en este momento (localizado a tu zona horaria).
+- `/timezone` - Configura tu región/zona horaria para ver los mercados en tu hora local.
 - `/noticias` - Top 3 noticias de impacto en demanda.
 
 ### 👑 Comandos de Administrador
