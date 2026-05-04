@@ -8,7 +8,7 @@ import telebot
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bot.services import obtener_precios, obtener_estado_mercados, buscar_noticias
-from bot.db import add_user, set_news_enabled, get_user_stats, ban_user, get_all_users, log_command
+from bot.db import add_user, set_news_enabled, get_user_stats, ban_user, get_all_users, log_command, get_user_timezone, set_user_timezone
 
 token = os.getenv('TELEGRAM_TOKEN', '')
 bot = telebot.TeleBot(token, threaded=False)
@@ -54,6 +54,7 @@ def cmd_help(m):
             "• /unsubscribe — Desactivar noticias automáticas\n"
             "• /prices — Precios de BTC, ETH y BNB\n"
             "• /mercados — Estado de bolsas mundiales\n"
+            "• /timezone — Configurar tu zona horaria local\n"
             "• /noticias — Top 3 noticias de impacto")
     if m.chat.id == ADMIN_CHAT_ID:
         text += ("\n\n👑 **Comandos de admin:**\n"
@@ -88,7 +89,45 @@ def cmd_prices(m):
 @bot.message_handler(commands=['mercados'])
 def cmd_mercados(m):
     log_command(m.chat.id, '/mercados')
-    bot.send_message(m.chat.id, obtener_estado_mercados(), parse_mode='Markdown')
+    tz_str = get_user_timezone(m.chat.id)
+    import pytz
+    try:
+        tz_obj = pytz.timezone(tz_str)
+    except:
+        tz_obj = pytz.timezone('Europe/Madrid')
+    bot.send_message(m.chat.id, obtener_estado_mercados(tz_obj), parse_mode='Markdown')
+
+@bot.message_handler(commands=['timezone'])
+def cmd_timezone(m):
+    log_command(m.chat.id, '/timezone')
+    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🇪🇸 España", callback_data="tz|Europe/Madrid"),
+        InlineKeyboardButton("🇺🇸 EE.UU. (NY)", callback_data="tz|America/New_York")
+    )
+    markup.row(
+        InlineKeyboardButton("🇦🇷 Argentina", callback_data="tz|America/Argentina/Buenos_Aires"),
+        InlineKeyboardButton("🇲🇽 México", callback_data="tz|America/Mexico_City")
+    )
+    markup.row(
+        InlineKeyboardButton("🇨🇴 Colombia", callback_data="tz|America/Bogota"),
+        InlineKeyboardButton("🇨🇱 Chile", callback_data="tz|America/Santiago")
+    )
+    markup.row(
+        InlineKeyboardButton("🇻🇪 Venezuela", callback_data="tz|America/Caracas")
+    )
+    bot.send_message(m.chat.id, "🌍 **Configuración de Zona Horaria**\nSeleccioná tu región para que los horarios del mercado aparezcan en tu hora local:", reply_markup=markup, parse_mode='Markdown')
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('tz|'))
+def callback_timezone(call):
+    tz_string = call.data.split('|')[1]
+    success = set_user_timezone(call.message.chat.id, tz_string)
+    if success:
+        bot.answer_callback_query(call.id, f"Zona horaria actualizada a {tz_string}")
+        bot.edit_message_text(f"✅ **Zona horaria configurada:** `{tz_string}`\nLos horarios en /mercados ahora se mostrarán en tu hora local.", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode='Markdown')
+    else:
+        bot.answer_callback_query(call.id, "Error actualizando zona horaria", show_alert=True)
 
 @bot.message_handler(commands=['noticias'])
 def cmd_noticias(m):

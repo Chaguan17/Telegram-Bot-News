@@ -81,6 +81,28 @@ def set_news_enabled(chat_id: int, enabled: bool) -> str:
         print(f"Error en set_news_enabled: {e}")
         return "error"
 
+def get_user_timezone(chat_id: int) -> str:
+    """Devuelve la zona horaria del usuario o 'Europe/Madrid' por defecto."""
+    if not supabase: return "Europe/Madrid"
+    try:
+        response = supabase.table("users").select("timezone").eq("chat_id", chat_id).execute()
+        if response.data and response.data[0].get("timezone"):
+            return response.data[0]["timezone"]
+        return "Europe/Madrid"
+    except Exception as e:
+        print(f"Error en get_user_timezone: {e}")
+        return "Europe/Madrid"
+
+def set_user_timezone(chat_id: int, tz_string: str) -> bool:
+    """Actualiza la zona horaria del usuario."""
+    if not supabase: return False
+    try:
+        # Update es mejor que upsert aquí para no sobreescribir otros valores si falta alguno
+        supabase.table("users").update({"timezone": tz_string}).eq("chat_id", chat_id).execute()
+        return True
+    except Exception as e:
+        print(f"Error en set_user_timezone: {e}")
+        return False
 
 def get_news_subscribers() -> list:
     """Devuelve los chat_id de usuarios con news_enabled=True."""

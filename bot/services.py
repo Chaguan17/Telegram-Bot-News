@@ -68,7 +68,7 @@ def obtener_estado_mercados(tz=tz) -> str:
         return "💤 **FIN DE SEMANA**\nBolsas cerradas. Criptos operando 24/7."
 
     h_decimal = ahora_esp.hour + ahora_esp.minute / 60.0
-    texto = f"🌍 **MERCADOS (Hora España: {ahora_esp.strftime('%H:%M')})**\n\n"
+    texto = f"🌍 **MERCADOS (Hora Local: {ahora_esp.strftime('%H:%M')})**\n\n"
     
     # Formato: ("Nombre", (hora_abre, min_abre), (hora_cierra, min_cierra))
     fases = [
