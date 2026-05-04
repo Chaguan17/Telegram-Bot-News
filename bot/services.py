@@ -59,41 +59,63 @@ def obtener_precios() -> str:
         print(f"Error Binance: {e}")
         return "❌ Error al conectar con Binance API."
 
-from datetime import datetime
+import pytz
+from datetime import datetime, time
 
-def obtener_estado_mercados(tz=tz) -> str:
-    ahora_esp = datetime.now(tz)
+def obtener_estado_mercados(user_tz=tz) -> str:
+    ahora_user = datetime.now(user_tz)
+    texto = f"🌍 **MERCADOS (Hora Local: {ahora_user.strftime('%H:%M')})**\n\n"
     
-    if ahora_esp.weekday() > 4:
-        return "💤 **FIN DE SEMANA**\nBolsas cerradas. Criptos operando 24/7."
-
-    h_decimal = ahora_esp.hour + ahora_esp.minute / 60.0
-    texto = f"🌍 **MERCADOS (Hora Local: {ahora_esp.strftime('%H:%M')})**\n\n"
-    
-    # Formato: ("Nombre", (hora_abre, min_abre), (hora_cierra, min_cierra))
+    # Formato: ("Nombre", "timezone", (hora_abre, min_abre), (hora_cierra, min_cierra))
     fases = [
-        ("🇯🇵 Asia (Tokio)", (1, 0), (10, 0)),
-        ("🇪🇺 Europa (Madrid/Londres)", (9, 0), (17, 30)), # 17:30 es el cierre de sesión continua
-        ("🇺🇸 EE.UU. (Nueva York)", (15, 30), (22, 0))
+        ("🇯🇵 Asia (Tokio)", "Asia/Tokyo", (9, 0), (18, 0)),
+        ("🇪🇺 Europa (Madrid/Londres)", "Europe/Madrid", (9, 0), (17, 30)),
+        ("🇺🇸 EE.UU. (Nueva York)", "America/New_York", (9, 30), (16, 0))
     ]
 
-    for nombre, (h_ap, m_ap), (h_ci, m_ci) in fases:
-        # Calculamos el valor decimal dinámicamente para la condición lógica
-        abre_decimal = h_ap + (m_ap / 60.0)
-        cierra_decimal = h_ci + (m_ci / 60.0)
+    is_europe_open = False
+    is_us_open = False
+
+    for nombre, market_tz_str, (h_ap, m_ap), (h_ci, m_ci) in fases:
+        market_tz = pytz.timezone(market_tz_str)
+        now_market = datetime.now(market_tz)
+        
+        # Validar si es fin de semana localmente en el mercado
+        is_weekend = now_market.weekday() > 4
+        
+        # Crear objetos time para la comparación
+        open_time = time(h_ap, m_ap)
+        close_time = time(h_ci, m_ci)
+        current_time = now_market.time()
         
         # Comprobamos si el mercado está abierto
-        estado = "🟢" if abre_decimal <= h_decimal <= cierra_decimal else "🔴"
+        is_open = not is_weekend and (open_time <= current_time <= close_time)
+        estado = "🟢" if is_open else "🔴"
         
-        # Formateamos el horario para que siempre tenga 2 dígitos (ej: 09:00)
-        horario_texto = f"{h_ap:02d}:{m_ap:02d} - {h_ci:02d}:{m_ci:02d}"
+        # Registrar estado para solapamiento
+        if "Europa" in nombre and is_open:
+            is_europe_open = True
+        if "EE.UU." in nombre and is_open:
+            is_us_open = True
+            
+        # Crear datetime localizados para mostrar en la zona del usuario
+        dt_open_market = market_tz.localize(datetime.combine(now_market.date(), open_time))
+        dt_close_market = market_tz.localize(datetime.combine(now_market.date(), close_time))
         
-        # Añadimos la información al texto final
-        texto += f"{estado} **{nombre}** ({horario_texto})\n"
+        # Convertir a la zona del usuario
+        dt_open_user = dt_open_market.astimezone(user_tz)
+        dt_close_user = dt_close_market.astimezone(user_tz)
+        
+        # Formateamos el horario
+        horario_texto = f"{dt_open_user.strftime('%H:%M')} - {dt_close_user.strftime('%H:%M')}"
+        
+        if is_weekend:
+            texto += f"🔴 **{nombre}** (Cerrado por Fin de Semana)\n"
+        else:
+            texto += f"{estado} **{nombre}** ({horario_texto})\n"
 
-    # Solapamiento EE.UU y Europa (15:30 a 17:30)
-    # 15:30 = 15.5 | 17:30 = 17.5
-    if 15.5 <= h_decimal <= 17.5:
+    # Solapamiento dinámico EE.UU y Europa
+    if is_europe_open and is_us_open:
         texto += "\n🔥 **SOLAPAMIENTO DETECTADO**: Máximo volumen NYSE + Europa."
     
     return texto
