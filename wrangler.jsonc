@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "telegram-bot-news",
+  "main": "worker.py",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": ["python_workers", "disable_python_external_sdk"],
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "vars": {
+    // Reemplazar en Cloudflare antes de mover tráfico. 0 deja admin commands bloqueados.
+    "ADMIN_CHAT_ID": "0"
+  },
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "telegram-bot-news",
+      "database_id": "8de420bf-bd3e-443a-8938-c94f5fc0b8ad"
+    }
+  ]
+}

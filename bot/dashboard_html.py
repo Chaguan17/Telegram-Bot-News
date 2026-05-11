@@ -1,0 +1,385 @@
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BNB Sentinel — Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+        }
+        header {
+            border-bottom: 1px solid #21262d;
+            padding: 1.5rem 2rem;
+        }
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #f0f6fc;
+        }
+        header h1 span { color: #58a6ff; }
+        header p {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-top: 0.25rem;
+        }
+        .status-bar {
+            display: flex;
+            gap: 1.5rem;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #21262d;
+            flex-wrap: wrap;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.ok { background: #3fb950; }
+        .status-dot.warn { background: #d29922; }
+        .status-dot.err { background: #f85149; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 1.5rem 2rem;
+        }
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 1.25rem;
+        }
+        .stat-card .label {
+            font-size: 0.75rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #f0f6fc;
+            margin-top: 0.25rem;
+        }
+        .stat-card .sub {
+            font-size: 0.75rem;
+            color: #8b949e;
+            margin-top: 0.25rem;
+        }
+        .charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            padding: 0 2rem 2rem;
+        }
+        .chart-card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 1.25rem;
+        }
+        .chart-card h3 {
+            font-size: 0.85rem;
+            color: #8b949e;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+        .chart-card canvas { max-height: 250px; }
+        @media (max-width: 768px) {
+            .charts { grid-template-columns: 1fr; }
+        }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #8b949e;
+        }
+        .error-msg {
+            background: #1c0a0a;
+            border: 1px solid #f8514933;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1.5rem 2rem;
+            color: #f85149;
+            font-size: 0.85rem;
+        }
+        footer {
+            text-align: center;
+            padding: 1.5rem;
+            color: #484f58;
+            font-size: 0.75rem;
+            border-top: 1px solid #21262d;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span>⚡</span> BNB Sentinel</h1>
+        <p>Dashboard de estado y actividad del bot</p>
+    </header>
+
+    <div class="status-bar" id="statusBar">
+        <div class="status-item">
+            <span class="status-dot ok"></span>
+            <span id="cronStatus">Cargando...</span>
+        </div>
+        <div class="status-item" id="lastCron" style="display:none"></div>
+    </div>
+
+    <div class="stats-grid" id="statsGrid">
+        <div class="loading">Cargando métricas...</div>
+    </div>
+
+    <div class="charts" id="chartsArea"></div>
+
+    <footer>BNB Sentinel Bot — Serverless Dashboard</footer>
+
+    <script>
+        const API = '/api/stats';
+        const CHART_COLORS = [
+            '#58a6ff', '#3fb950', '#d29922', '#f85149',
+            '#bc8cff', '#79c0ff', '#56d364', '#e3b341'
+        ];
+
+        function timeAgo(isoStr) {
+            if (!isoStr) return '—';
+            const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+            if (diff < 60) return 'hace unos segundos';
+            if (diff < 3600) return `hace ${Math.floor(diff/60)} min`;
+            if (diff < 86400) return `hace ${Math.floor(diff/3600)} h`;
+            return `hace ${Math.floor(diff/86400)} días`;
+        }
+
+        function fillDays(labels, data) {
+            const result = {};
+            labels.forEach(d => { result[d] = data[d] || 0; });
+            return labels.map(d => result[d]);
+        }
+
+        function last7Days() {
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(); d.setDate(d.getDate() - i);
+                days.push(d.toISOString().slice(0, 10));
+            }
+            return days;
+        }
+
+        async function init() {
+            try {
+                const res = await fetch(API);
+                const data = await res.json();
+
+                if (data.error) {
+                    document.getElementById('statsGrid').innerHTML =
+                        `<div class="error-msg">Error: ${data.error}</div>`;
+                    return;
+                }
+
+                // Status bar
+                const statusDot = document.querySelector('.status-dot');
+                const cronAge = data.last_cron_at
+                    ? (Date.now() - new Date(data.last_cron_at).getTime()) / 60000
+                    : Infinity;
+                
+                // Umbrales para cron diario (1440 min):
+                // < 25h (1500m) = OK
+                // < 48h (2880m) = Warn
+                statusDot.className = 'status-dot ' + (
+                    cronAge < 1500 ? 'ok' : cronAge < 2880 ? 'warn' : 'err'
+                );
+                document.getElementById('cronStatus').textContent =
+                    cronAge < 1500 ? 'Bot activo' : cronAge < 2880 ? 'Bot inactivo (último cron hace rato)' : 'Bot caído o sin datos de cron';
+
+                const lastEl = document.getElementById('lastCron');
+                if (data.last_cron_at) {
+                    lastEl.style.display = 'flex';
+                    lastEl.innerHTML = `<span class="status-dot ok" style="background:#8b949e"></span> Último cron: ${timeAgo(data.last_cron_at)}`;
+                }
+
+                // Stat cards
+                const statsGrid = document.getElementById('statsGrid');
+                statsGrid.innerHTML = `
+                    <div class="stat-card">
+                        <div class="label">Usuarios Totales</div>
+                        <div class="value">${data.total_users}</div>
+                        <div class="sub">${data.subscribed} suscritos · ${data.unsubscribed} desuscritos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Comandos (7 días)</div>
+                        <div class="value">${data.total_commands_week}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Noticias Enviadas</div>
+                        <div class="value">${data.total_news_sent}</div>
+                        <div class="sub">histórico total</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Estado del Bot</div>
+                        <div class="value" style="font-size:1.25rem;color:${cronAge < 1500 ? '#3fb950' : '#d29922'}">${cronAge < 1500 ? '✓ Operativo' : '⚠ Revisar cron'}</div>
+                    </div>
+                `;
+
+                // Charts
+                const labels = last7Days();
+                const chartsArea = document.getElementById('chartsArea');
+                chartsArea.innerHTML = ''; // Limpiar para el refresh
+
+                // Commands by day
+                const cmdByDay = fillDays(labels, data.commands_by_day);
+                chartsArea.innerHTML += `
+                    <div class="chart-card">
+                        <h3>Comandos por día</h3>
+                        <canvas id="cmdChart"></canvas>
+                    </div>
+                `;
+
+                // News by day
+                const newsByDay = fillDays(labels, data.news_by_day);
+                chartsArea.innerHTML += `
+                    <div class="chart-card">
+                        <h3>Noticias enviadas por día</h3>
+                        <canvas id="newsChart"></canvas>
+                    </div>
+                `;
+
+                // New users by day
+                const newUsersByDay = fillDays(labels, data.new_users_by_day);
+                chartsArea.innerHTML += `
+                    <div class="chart-card">
+                        <h3>Usuarios nuevos por día</h3>
+                        <canvas id="usersChart"></canvas>
+                    </div>
+                `;
+
+                // Commands by type (pie)
+                const cmdTypes = Object.entries(data.commands_by_type || {});
+                chartsArea.innerHTML += `
+                    <div class="chart-card">
+                        <h3>Comandos más usados</h3>
+                        <canvas id="cmdPieChart"></canvas>
+                    </div>
+                `;
+
+                // Render charts
+                const shortLabels = labels.map(d => d.slice(5)); // MM-DD
+
+                new Chart(document.getElementById('cmdChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: shortLabels,
+                        datasets: [{
+                            label: 'Comandos',
+                            data: cmdByDay,
+                            backgroundColor: '#58a6ff22',
+                            borderColor: '#58a6ff',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }]
+                    },
+                    options: chartOpts('Comandos')
+                });
+
+                new Chart(document.getElementById('newsChart'), {
+                    type: 'line',
+                    data: {
+                        labels: shortLabels,
+                        datasets: [{
+                            label: 'Noticias',
+                            data: newsByDay,
+                            borderColor: '#3fb950',
+                            backgroundColor: '#3fb95022',
+                            fill: true,
+                            tension: 0.3,
+                        }]
+                    },
+                    options: chartOpts('Noticias')
+                });
+
+                new Chart(document.getElementById('usersChart'), {
+                    type: 'line',
+                    data: {
+                        labels: shortLabels,
+                        datasets: [{
+                            label: 'Nuevos usuarios',
+                            data: newUsersByDay,
+                            borderColor: '#d29922',
+                            backgroundColor: '#d2992222',
+                            fill: true,
+                            tension: 0.3,
+                        }]
+                    },
+                    options: chartOpts('Usuarios')
+                });
+
+                if (cmdTypes.length > 0) {
+                    new Chart(document.getElementById('cmdPieChart'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: cmdTypes.map(c => c[0]),
+                            datasets: [{
+                                data: cmdTypes.map(c => c[1]),
+                                backgroundColor: CHART_COLORS.slice(0, cmdTypes.length),
+                                borderColor: '#0d1117',
+                                borderWidth: 2,
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                    labels: { color: '#c9d1d9', font: { size: 11 } }
+                                }
+                            }
+                        }
+                    });
+                }
+
+            } catch (e) {
+                document.getElementById('statsGrid').innerHTML =
+                    `<div class="error-msg">Error cargando datos: ${e.message}</div>`;
+            }
+        }
+
+        function chartOpts(label) {
+            return {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#21262d' },
+                        ticks: { color: '#8b949e', font: { size: 10 } }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#21262d' },
+                        ticks: { color: '#8b949e', font: { size: 10 } }
+                    }
+                }
+            };
+        }
+
+        init();
+        // Auto-refresh cada 60s
+        setInterval(init, 60000);
+    </script>
+</body>
+</html>
+"""
