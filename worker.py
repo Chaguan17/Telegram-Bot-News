@@ -11,6 +11,7 @@ from bot.price_service import obtener_precios_with_async_loader
 from bot.repositories.d1_binding_repository import D1BindingRepository
 from bot.webhook_service import handle_telegram_update
 from bot.dashboard_html import DASHBOARD_HTML
+from bot.utils.rss_parser import parse_rss_custom
 
 
 class CloudflareTelegramClient:
@@ -56,10 +57,9 @@ class CloudflareTelegramClient:
 
 
 async def fetch_feed_entries(url: str):
-    import feedparser
     response = await js.fetch(url)
     text = await response.text()
-    return feedparser.parse(text).entries
+    return parse_rss_custom(text)
 
 
 async def fetch_binance_prices(symbols: list[str]):
