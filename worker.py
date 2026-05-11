@@ -1,6 +1,6 @@
 import json
 from urllib.parse import urlparse
-from js import fetch
+import js
 from pyodide.ffi import to_js
 from workers import Response, WorkerEntrypoint
 
@@ -10,7 +10,6 @@ from bot.news_service import RSS_FEEDS, buscar_noticias_with_async_loader
 from bot.price_service import obtener_precios_with_async_loader
 from bot.repositories.d1_binding_repository import D1BindingRepository
 from bot.webhook_service import handle_telegram_update
-from cloudflare.rss import parse_rss_entries
 
 
 class CloudflareTelegramClient:
@@ -21,7 +20,7 @@ class CloudflareTelegramClient:
         if not self.token:
             raise RuntimeError("TELEGRAM_TOKEN is not configured")
 
-        response = await fetch(
+        response = await js.fetch(
             f"https://api.telegram.org/bot{self.token}/{method}",
             to_js({
                 "method": "POST",
@@ -56,18 +55,28 @@ class CloudflareTelegramClient:
 
 
 async def fetch_feed_entries(url: str):
-    response = await fetch(url)
-    if not response.ok:
-        raise RuntimeError(f"Feed HTTP {response.status}")
-    return parse_rss_entries(await response.text())
+    import feedparser
+    response = await js.fetch(url)
+    text = await response.text()
+    return feedparser.parse(text).entries
 
 
 async def fetch_binance_prices(symbols: list[str]):
-    url = f"https://api.binance.com/api/v3/ticker/price?symbols={json.dumps(symbols)}"
-    response = await fetch(url, to_js({"headers": {"User-Agent": "Mozilla/5.0"}}))
-    if not response.ok:
-        raise RuntimeError(f"Binance HTTP {response.status}")
-    return (await response.json()).to_py()
+    import json
+    symbols_str = json.dumps(symbols)
+    url = f"https://api.binance.com/api/v3/ticker/price?symbols={symbols_str}"
+    
+    headers = js.Object.fromEntries(js.Object.entries({
+        "User-Agent": "Mozilla/5.0"
+    }))
+    
+    response = await js.fetch(url, method="GET", headers=headers)
+    if response.status != 200:
+        status_text = await response.text()
+        raise RuntimeError(f"Binance status {response.status}: {status_text}")
+    
+    data_text = await response.text()
+    return json.loads(data_text)
 
 
 def json_response(payload, *, status: int = 200):

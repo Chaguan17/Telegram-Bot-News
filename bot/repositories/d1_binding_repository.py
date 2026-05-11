@@ -22,12 +22,17 @@ class D1BindingRepository:
         return getattr(row, key, default)
 
     async def _run(self, sql: str, *params):
+        print(f"[D1] RUN: {sql} | PARAMS: {params}")
         statement = self.db.prepare(sql)
         if params:
             statement = statement.bind(*params)
-        return await statement.run()
+        res = await statement.run()
+        if not res.success:
+            print(f"[D1] ERROR: {res.error}")
+        return res
 
     async def _first(self, sql: str, *params):
+        print(f"[D1] FIRST: {sql} | PARAMS: {params}")
         statement = self.db.prepare(sql)
         if params:
             statement = statement.bind(*params)
@@ -43,19 +48,23 @@ class D1BindingRepository:
 
     async def add_user(self, chat_id: int) -> dict:
         try:
+            print(f"[D1] Intentando añadir/verificar usuario: {chat_id}")
             row = await self._first(
                 "SELECT chat_id, news_enabled FROM users WHERE chat_id = ?",
                 chat_id,
             )
             if row:
+                print(f"[D1] Usuario {chat_id} ya existe.")
                 return {"status": "existing", "news_enabled": bool(self._value(row, "news_enabled"))}
+            
+            print(f"[D1] Insertando nuevo usuario: {chat_id}")
             await self._run(
                 "INSERT INTO users (chat_id, news_enabled) VALUES (?, 1)",
                 chat_id,
             )
             return {"status": "new", "news_enabled": True}
         except Exception as e:
-            print(f"Error en add_user: {e}")
+            print(f"[D1] ERROR en add_user: {e}")
             return {"status": "error"}
 
     async def set_news_enabled(self, chat_id: int, enabled: bool) -> str:
