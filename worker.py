@@ -10,6 +10,7 @@ from bot.news_service import RSS_FEEDS, buscar_noticias_with_async_loader
 from bot.price_service import obtener_precios_with_async_loader
 from bot.repositories.d1_binding_repository import D1BindingRepository
 from bot.webhook_service import handle_telegram_update
+from bot.dashboard_html import DASHBOARD_HTML
 
 
 class CloudflareTelegramClient:
@@ -95,6 +96,9 @@ class Default(WorkerEntrypoint):
     async def fetch(self, request):
         pathname = urlparse(request.url).path
         repository = D1BindingRepository(self.env.DB)
+
+        if pathname == "/":
+            return Response(DASHBOARD_HTML, headers={"Content-Type": "text/html"})
 
         if pathname == "/api/stats":
             return json_response(await repository.get_dashboard_stats())
