@@ -68,11 +68,11 @@ async def fetch_binance_prices(symbols: list[str]):
     symbols_str = quote(json.dumps(symbols))
     url = f"https://api.binance.com/api/v3/ticker/price?symbols={symbols_str}"
     
-    headers = js.Object.fromEntries(js.Object.entries({
-        "User-Agent": "Mozilla/5.0"
+    response = await js.fetch(url, to_js({
+        "method": "GET",
+        "headers": {"User-Agent": "Mozilla/5.0"}
     }))
     
-    response = await js.fetch(url, method="GET", headers=headers)
     if response.status != 200:
         status_text = await response.text()
         raise RuntimeError(f"Binance status {response.status}: {status_text}")
