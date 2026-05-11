@@ -63,7 +63,8 @@ async def fetch_feed_entries(url: str):
 
 async def fetch_binance_prices(symbols: list[str]):
     import json
-    symbols_str = json.dumps(symbols)
+    from urllib.parse import quote
+    symbols_str = quote(json.dumps(symbols))
     url = f"https://api.binance.com/api/v3/ticker/price?symbols={symbols_str}"
     
     headers = js.Object.fromEntries(js.Object.entries({

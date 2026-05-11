@@ -182,9 +182,8 @@ class D1BindingRepository:
             now = datetime.now(timezone.utc).isoformat()
             await self._run(
                 """
-                UPDATE bot_health
-                SET last_cron_at = ?, last_cron_status = ?, updated_at = ?
-                WHERE id = 1
+                INSERT OR REPLACE INTO bot_health (id, last_cron_at, last_cron_status, updated_at)
+                VALUES (1, ?, ?, ?)
                 """,
                 now,
                 status,
