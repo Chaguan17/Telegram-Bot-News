@@ -4,6 +4,9 @@
 env/
 venv/
 ENV/
+.wrangler/
+cloudflare/d1/import.sql
+d1_import.sql
 
 # SDD & AI Tools
 .atl/
@@ -13,6 +16,7 @@ design.md
 task.md
 verify-report.md
 walkthrough.md
+CLOUDFLARE_MIGRATION_HANDOFF.md
 
 # Python
 __pycache__/
