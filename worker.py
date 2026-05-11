@@ -121,7 +121,7 @@ class Default(WorkerEntrypoint):
 
         return json_response({"error": "Not found"}, status=404)
 
-    async def scheduled(self, controller):
+    async def scheduled(self, event, env, ctx):
         repository = D1BindingRepository(self.env.DB)
         telegram = CloudflareTelegramClient(self.env.TELEGRAM_TOKEN)
 
