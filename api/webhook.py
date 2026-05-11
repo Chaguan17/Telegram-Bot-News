@@ -7,6 +7,19 @@ import telebot
 # Añadir el root del proyecto al path para importar bot.services
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from bot.command_service import (
+    ban_response,
+    ban_target,
+    extract_broadcast_text,
+    help_text,
+    markets_response,
+    news_messages,
+    start_response,
+    stats_response,
+    subscription_response,
+    timezone_callback_response,
+    timezone_keyboard_payload,
+)
 from bot.services import obtener_precios, obtener_estado_mercados, buscar_noticias
 from bot.db import add_user, set_news_enabled, get_user_stats, ban_user, get_all_users, log_command, get_user_timezone, set_user_timezone
 
@@ -28,58 +41,36 @@ def admin_only(func):
         return func(m)
     return wrapper
 
+# ===== HELPERS TELEBOT =====
+
+def build_timezone_markup():
+    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+    markup = InlineKeyboardMarkup()
+    for row in timezone_keyboard_payload()["inline_keyboard"]:
+        markup.row(*[InlineKeyboardButton(button["text"], callback_data=button["callback_data"]) for button in row])
+    return markup
+
 # ===== MANEJADORES DE COMANDOS =====
 
 @bot.message_handler(commands=['start'])
 def cmd_start(m):
     log_command(m.chat.id, '/start')
-    result = add_user(m.chat.id)
-    status = result.get("status")
-    news_on = result.get("news_enabled", True)
-    if status == "new":
-        bot.reply_to(m, "🚀 **Bot Serverless Activo**\n• Suscrito a noticias automáticas.\n• /help : Ver comandos disponibles")
-    elif status == "existing":
-        state = "**activadas**" if news_on else "**desactivadas**"
-        toggle = "/unsubscribe para desactivar" if news_on else "/subscribe para reactivar"
-        bot.reply_to(m, f"🤖 **Ya estás registrado.** Las noticias automáticas están {state}. Usá {toggle} o /help para ver comandos.")
-    else:
-        bot.reply_to(m, "❌ Error de conexión con la base de datos. Intentá más tarde.")
+    bot.reply_to(m, start_response(add_user(m.chat.id)))
 
 @bot.message_handler(commands=['help'])
 def cmd_help(m):
     log_command(m.chat.id, '/help')
-    text = ("📋 **Comandos disponibles:**\n\n"
-            "• /start — Suscribirse al bot\n"
-            "• /subscribe — Activar noticias automáticas\n"
-            "• /unsubscribe — Desactivar noticias automáticas\n"
-            "• /prices — Precios de BTC, ETH y BNB\n"
-            "• /mercados — Estado de bolsas mundiales\n"
-            "• /timezone — Configurar tu zona horaria local\n"
-            "• /noticias — Top 3 noticias de impacto")
-    if m.chat.id == ADMIN_CHAT_ID:
-        text += ("\n\n👑 **Comandos de admin:**\n"
-                 "• /stats — Estadísticas de usuarios\n"
-                 "• /broadcast <mensaje> — Enviar mensaje a todos los suscritos\n"
-                 "• /ban <chat_id> — Eliminar un usuario")
-    bot.reply_to(m, text)
+    bot.reply_to(m, help_text(is_admin=m.chat.id == ADMIN_CHAT_ID))
 
 @bot.message_handler(commands=['subscribe'])
 def cmd_subscribe(m):
     log_command(m.chat.id, '/subscribe')
-    result = set_news_enabled(m.chat.id, True)
-    if result == "ok":
-        bot.reply_to(m, "✅ Noticias automáticas **activadas**. Recibirás noticias cada 15 min. Usá /unsubscribe para desactivar.")
-    else:
-        bot.reply_to(m, "❌ Primero debés usar /start para registrarte, o hay un error de conexión.")
+    bot.reply_to(m, subscription_response(set_news_enabled(m.chat.id, True), enabled=True))
 
 @bot.message_handler(commands=['unsubscribe'])
 def cmd_unsubscribe(m):
     log_command(m.chat.id, '/unsubscribe')
-    result = set_news_enabled(m.chat.id, False)
-    if result == "ok":
-        bot.reply_to(m, "🔇 Noticias automáticas **desactivadas**. Seguís pudiendo usar /noticias para consultar a demanda. Usá /subscribe para reactivar.")
-    else:
-        bot.reply_to(m, "❌ Primero debés usar /start para registrarte, o hay un error de conexión.")
+    bot.reply_to(m, subscription_response(set_news_enabled(m.chat.id, False), enabled=False))
 
 @bot.message_handler(commands=['prices'])
 def cmd_prices(m):
@@ -89,57 +80,43 @@ def cmd_prices(m):
 @bot.message_handler(commands=['mercados'])
 def cmd_mercados(m):
     log_command(m.chat.id, '/mercados')
-    tz_str = get_user_timezone(m.chat.id)
-    import pytz
-    try:
-        tz_obj = pytz.timezone(tz_str)
-    except:
-        tz_obj = pytz.timezone('Europe/Madrid')
-    bot.send_message(m.chat.id, obtener_estado_mercados(tz_obj), parse_mode='Markdown')
+    bot.send_message(
+        m.chat.id,
+        markets_response(get_user_timezone(m.chat.id), obtener_estado_mercados),
+        parse_mode='Markdown',
+    )
 
 @bot.message_handler(commands=['timezone'])
 def cmd_timezone(m):
     log_command(m.chat.id, '/timezone')
-    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("🇪🇸 España", callback_data="tz|Europe/Madrid"),
-        InlineKeyboardButton("🇺🇸 EE.UU. (NY)", callback_data="tz|America/New_York")
+    bot.send_message(
+        m.chat.id,
+        "🌍 **Configuración de Zona Horaria**\nSeleccioná tu región para que los horarios del mercado aparezcan en tu hora local:",
+        reply_markup=build_timezone_markup(),
+        parse_mode='Markdown',
     )
-    markup.row(
-        InlineKeyboardButton("🇦🇷 Argentina", callback_data="tz|America/Argentina/Buenos_Aires"),
-        InlineKeyboardButton("🇲🇽 México", callback_data="tz|America/Mexico_City")
-    )
-    markup.row(
-        InlineKeyboardButton("🇨🇴 Colombia", callback_data="tz|America/Bogota"),
-        InlineKeyboardButton("🇨🇱 Chile", callback_data="tz|America/Santiago")
-    )
-    markup.row(
-        InlineKeyboardButton("🇻🇪 Venezuela", callback_data="tz|America/Caracas")
-    )
-    bot.send_message(m.chat.id, "🌍 **Configuración de Zona Horaria**\nSeleccioná tu región para que los horarios del mercado aparezcan en tu hora local:", reply_markup=markup, parse_mode='Markdown')
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('tz|'))
 def callback_timezone(call):
     tz_string = call.data.split('|')[1]
-    success = set_user_timezone(call.message.chat.id, tz_string)
-    if success:
-        bot.answer_callback_query(call.id, f"Zona horaria actualizada a {tz_string}")
-        bot.edit_message_text(f"✅ **Zona horaria configurada:** `{tz_string}`\nLos horarios en /mercados ahora se mostrarán en tu hora local.", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode='Markdown')
-    else:
-        bot.answer_callback_query(call.id, "Error actualizando zona horaria", show_alert=True)
+    response = timezone_callback_response(tz_string, set_user_timezone(call.message.chat.id, tz_string))
+    bot.answer_callback_query(call.id, response["answer_text"], show_alert=response["show_alert"])
+    if response["message_text"]:
+        bot.edit_message_text(
+            response["message_text"],
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode='Markdown',
+        )
 
 @bot.message_handler(commands=['noticias'])
 def cmd_noticias(m):
     log_command(m.chat.id, '/noticias')
     bot.send_chat_action(m.chat.id, 'typing')
-    noticias = buscar_noticias()
-    if not noticias:
-        bot.reply_to(m, "No he encontrado noticias de alto impacto en los feeds en este momento.")
-    else:
-        bot.reply_to(m, "📰 **Top 3 Noticias de Impacto Actuales:**")
-        for n in noticias:
-            bot.send_message(m.chat.id, n['message'], parse_mode='Markdown')
+    messages = news_messages(buscar_noticias())
+    bot.reply_to(m, messages[0])
+    for message in messages[1:]:
+        bot.send_message(m.chat.id, message, parse_mode='Markdown')
 
 # ===== COMANDOS DE ADMIN =====
 
@@ -147,36 +124,26 @@ def cmd_noticias(m):
 @admin_only
 def cmd_stats(m):
     log_command(m.chat.id, '/stats')
-    stats = get_user_stats()
-    bot.reply_to(m, f"📊 **Estadísticas de usuarios:**\n\n"
-                     f"• Total registrados: {stats['total']}\n"
-                     f"• Suscritos a noticias: {stats['subscribed']}\n"
-                     f"• Desuscritos: {stats['unsubscribed']}")
+    bot.reply_to(m, stats_response(get_user_stats()))
 
 @bot.message_handler(commands=['broadcast'])
 @admin_only
 def cmd_broadcast(m):
     log_command(m.chat.id, '/broadcast')
-    # Extraer el mensaje después de /broadcast
-    text = m.text.replace('/broadcast', '', 1).strip()
-    
-    # Si no hay texto, intentar sacar el texto del mensaje original (reply)
-    if not text and m.reply_to_message:
-        text = m.reply_to_message.text or m.reply_to_message.caption or ""
-        # Limpiar separador si viene de GitHub Actions
-        if "\n---\n⚠️ *Para enviar a todos" in text:
-            text = text.split("\n---\n⚠️ *Para enviar a todos")[0].strip()
-            
+    text = extract_broadcast_text(
+        m.text,
+        reply_text=(m.reply_to_message.text if m.reply_to_message else None),
+        reply_caption=(m.reply_to_message.caption if m.reply_to_message else None),
+    )
     if not text:
         bot.reply_to(m, "❌ Usá: /broadcast <mensaje> o respondé a un mensaje con /broadcast")
         return
-    
-    # Enviar a TODOS los usuarios registrados (suscritos y no suscritos)
+
     users = get_all_users()
     if not users:
         bot.reply_to(m, "❌ No hay usuarios registrados.")
         return
-    
+
     sent = 0
     failed = 0
     for uid in users:
@@ -186,32 +153,19 @@ def cmd_broadcast(m):
         except Exception as e:
             print(f"Error broadcasting to {uid}: {e}")
             failed += 1
-    
+
     bot.reply_to(m, f"✅ Broadcast enviado: {sent} exitosos, {failed} fallidos.")
 
 @bot.message_handler(commands=['ban'])
 @admin_only
 def cmd_ban(m):
     log_command(m.chat.id, '/ban')
-    # Extraer el chat_id después de /ban
-    parts = m.text.split()
-    if len(parts) != 2:
-        bot.reply_to(m, "❌ Usá: /ban <chat_id>")
+    target_id, error = ban_target(m.text)
+    if error:
+        bot.reply_to(m, error)
         return
-    
-    try:
-        target_id = int(parts[1])
-    except ValueError:
-        bot.reply_to(m, "❌ El chat_id debe ser un número.")
-        return
-    
-    result = ban_user(target_id)
-    if result == "deleted":
-        bot.reply_to(m, f"✅ Usuario {target_id} eliminado.")
-    elif result == "not_found":
-        bot.reply_to(m, f"⚠️ Usuario {target_id} no encontrado.")
-    else:
-        bot.reply_to(m, "❌ Error de conexión con la base de datos.")
+
+    bot.reply_to(m, ban_response(ban_user(target_id), target_id))
 
 # ===== HANDLER PARA VERCEL =====
 
@@ -220,12 +174,12 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
-            
+
             # Pasar la actualización a telebot
             json_string = post_data.decode('utf-8')
             update = telebot.types.Update.de_json(json_string)
             bot.process_new_updates([update])
-            
+
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
