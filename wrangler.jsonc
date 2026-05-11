@@ -3,10 +3,21 @@
   "name": "telegram-bot-news",
   "main": "worker.py",
   "compatibility_date": "2026-05-11",
-  "compatibility_flags": ["python_workers"],
+  "compatibility_flags": ["python_workers", "disable_python_external_sdk"],
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
   },
   "vars": {
     // Reemplazar en Cloudflare antes de mover tráfico. 0 deja admin commands bloqueados.
