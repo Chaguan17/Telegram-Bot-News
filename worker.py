@@ -57,9 +57,20 @@ class CloudflareTelegramClient:
 
 
 async def fetch_feed_entries(url: str):
-    response = await js.fetch(url)
-    text = await response.text()
-    return parse_rss_custom(text)
+    try:
+        response = await js.fetch(url, to_js({
+            "method": "GET",
+            "headers": {"User-Agent": "Mozilla/5.0"},
+            "cache": "no-store"
+        }))
+        if response.status != 200:
+            print(f"Error fetching feed {url}: Status {response.status}")
+            return []
+        text = await response.text()
+        return parse_rss_custom(text)
+    except Exception as e:
+        print(f"Exception fetching feed {url}: {e}")
+        return []
 
 
 async def fetch_binance_prices(symbols: list[str]):
