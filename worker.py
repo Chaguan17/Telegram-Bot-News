@@ -121,9 +121,9 @@ class Default(WorkerEntrypoint):
 
         return json_response({"error": "Not found"}, status=404)
 
-    async def scheduled(self, controller, env, ctx):
-        repository = D1BindingRepository(env.DB)
-        telegram = CloudflareTelegramClient(env.TELEGRAM_TOKEN)
+    async def scheduled(self, controller):
+        repository = D1BindingRepository(self.env.DB)
+        telegram = CloudflareTelegramClient(self.env.TELEGRAM_TOKEN)
 
         result = await run_news_cron_async(
             buscar_noticias=lambda: buscar_noticias_with_async_loader(fetch_feed_entries, feeds=RSS_FEEDS),
