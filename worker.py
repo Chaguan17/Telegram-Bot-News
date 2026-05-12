@@ -1,5 +1,7 @@
 import json
-from urllib.parse import urlparse
+import asyncio
+from datetime import datetime, timezone
+from urllib.parse import urlparse, parse_qs
 import js
 from pyodide.ffi import to_js
 from workers import Response, WorkerEntrypoint
@@ -57,9 +59,20 @@ class CloudflareTelegramClient:
 
 
 async def fetch_feed_entries(url: str):
-    response = await js.fetch(url)
-    text = await response.text()
-    return parse_rss_custom(text)
+    try:
+        response = await js.fetch(url, to_js({
+            "method": "GET",
+            "headers": {"User-Agent": "Mozilla/5.0"},
+            "cache": "no-store"
+        }))
+        if response.status != 200:
+            print(f"Error fetching feed {url}: Status {response.status}")
+            return []
+        text = await response.text()
+        return parse_rss_custom(text)
+    except Exception as e:
+        print(f"Exception fetching feed {url}: {e}")
+        return []
 
 
 async def fetch_binance_prices(symbols: list[str]):
@@ -103,6 +116,25 @@ class Default(WorkerEntrypoint):
         if pathname == "/api/stats":
             return json_response(await repository.get_dashboard_stats())
 
+        if pathname == "/api/debug-cron":
+            try:
+                print("[DEBUG] Disparo manual de Cron solicitado via URL")
+                query = urlparse(request.url).query
+                params = parse_qs(query)
+                force = params.get("force", ["0"])[0] == "1"
+                
+                result = await self.scheduled(None, self.env, force=force)
+                return json_response({
+                    "status": "debug_cron_triggered", 
+                    "result": result,
+                    "info": "Si 'result' es 0, puede ser por el filtro de score (>=4) o porque no hay noticias nuevas. Usá ?force=1 para ignorar duplicados."
+                })
+            except Exception as e:
+                import traceback
+                err_info = traceback.format_exc()
+                print(f"[ERROR] Debug cron fallo: {err_info}")
+                return json_response({"status": "error", "message": str(e), "trace": err_info}, status=500)
+
         if pathname == "/api/webhook":
             if request.method != "POST":
                 return json_response({"error": "Method not allowed"}, status=405)
@@ -121,7 +153,7 @@ class Default(WorkerEntrypoint):
 
         return json_response({"error": "Not found"}, status=404)
 
-    async def scheduled(self, event, env, ctx):
+    async def scheduled(self, event, env, ctx=None, force=False):
         repository = D1BindingRepository(self.env.DB)
         telegram = CloudflareTelegramClient(self.env.TELEGRAM_TOKEN)
 
@@ -132,5 +164,7 @@ class Default(WorkerEntrypoint):
             mark_news_sent=repository.mark_news_sent,
             send_message=telegram.send_message,
             update_bot_health=repository.update_bot_health,
+            ignore_sent=force
         )
         print(f"cron processed: {result}")
+        return result

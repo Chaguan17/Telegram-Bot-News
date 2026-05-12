@@ -38,9 +38,19 @@ class D1BindingRepository:
             statement = statement.bind(*params)
         return await statement.first()
 
+    async def _all(self, sql: str, *params):
+        print(f"[D1] ALL: {sql} | PARAMS: {params}")
+        statement = self.db.prepare(sql)
+        if params:
+            statement = statement.bind(*params)
+        res = await statement.all()
+        if not res.success:
+            print(f"[D1] ERROR: {res.error}")
+        return res
+
     async def get_all_users(self) -> list:
         try:
-            result = await self._run("SELECT chat_id FROM users")
+            result = await self._all("SELECT chat_id FROM users")
             return [self._value(row, "chat_id") for row in self._results(result)]
         except Exception as e:
             print(f"Error en get_all_users: {e}")
@@ -111,7 +121,7 @@ class D1BindingRepository:
 
     async def get_news_subscribers(self) -> list:
         try:
-            result = await self._run("SELECT chat_id FROM users WHERE news_enabled = 1")
+            result = await self._all("SELECT chat_id FROM users WHERE news_enabled = 1")
             return [self._value(row, "chat_id") for row in self._results(result)]
         except Exception as e:
             print(f"Error en get_news_subscribers: {e}")
@@ -196,11 +206,11 @@ class D1BindingRepository:
         try:
             week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
 
-            users = self._results(await self._run("SELECT news_enabled, created_at FROM users"))
+            users = self._results(await self._all("SELECT news_enabled, created_at FROM users"))
             total_users = len(users)
             subscribed = sum(1 for user in users if self._value(user, "news_enabled"))
 
-            commands = self._results(await self._run(
+            commands = self._results(await self._all(
                 "SELECT command, created_at FROM command_log WHERE created_at >= ?",
                 week_ago,
             ))
@@ -212,7 +222,7 @@ class D1BindingRepository:
                 commands_by_type[command] = commands_by_type.get(command, 0) + 1
                 commands_by_day[day] = commands_by_day.get(day, 0) + 1
 
-            sent_news = self._results(await self._run(
+            sent_news = self._results(await self._all(
                 "SELECT created_at FROM sent_news WHERE created_at >= ?",
                 week_ago,
             ))

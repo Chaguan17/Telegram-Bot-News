@@ -8,27 +8,42 @@ class RSSEntry:
     published: str = ""
 
 def parse_rss_custom(xml_text: str) -> list[RSSEntry]:
-    """Simple RSS/Atom parser using standard library only."""
+    """Simple RSS/Atom parser using standard library only.
+    Handles namespaces manually for maximum compatibility."""
     entries = []
     try:
+        # Some feeds have encoding issues, we try to fix common ones
+        if isinstance(xml_text, bytes):
+            xml_text = xml_text.decode('utf-8', errors='ignore')
+            
         root = ET.fromstring(xml_text)
         
-        # Handle RSS 2.0
-        for item in root.findall(".//item"):
-            title = item.findtext("title", "Sin título")
-            link = item.findtext("link", "")
-            pub_date = item.findtext("pubDate", "")
-            entries.append(RSSEntry(title=title, link=link, published=pub_date))
+        # We iterate over all elements and check their local name
+        # to avoid complex XPath predicates that might fail in some Python versions.
+        for node in root.iter():
+            tag_local = node.tag.split('}')[-1]
             
-        # Handle Atom if no RSS items found
-        if not entries:
-            # Atom uses namespaces, but we can search by local name
-            for entry in root.findall(".//*[local-name()='entry']"):
-                title = entry.findtext(".//*[local-name()='title']", "Sin título")
-                link_node = entry.find(".//*[local-name()='link']")
-                link = link_node.get("href") if link_node is not None else ""
-                published = entry.findtext(".//*[local-name()='published']", "") or entry.findtext(".//*[local-name()='updated']", "")
-                entries.append(RSSEntry(title=title, link=link, published=published))
+            # Handle RSS 'item' or Atom 'entry'
+            if tag_local in ('item', 'entry'):
+                title = ""
+                link = ""
+                published = ""
+                
+                for child in node:
+                    child_local = child.tag.split('}')[-1]
+                    # Use "".join(child.itertext()) to get all text including nested tags
+                    content = "".join(child.itertext()).strip()
+                    
+                    if child_local == 'title':
+                        title = content or "Sin título"
+                    elif child_local == 'link':
+                        # RSS uses text inside <link>, Atom uses href attribute
+                        link = content or child.get('href', '')
+                    elif child_local in ('pubDate', 'published', 'updated'):
+                        published = content
+                
+                if title or link:
+                    entries.append(RSSEntry(title=title, link=link, published=published))
                 
     except Exception as e:
         print(f"RSS Parsing Error: {e}")
