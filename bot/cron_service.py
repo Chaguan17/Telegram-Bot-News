@@ -68,9 +68,11 @@ async def run_news_cron_async(
         print(f"[CRON] Enviando noticia nueva: {noticia['hash']}")
         for uid in usuarios:
             try:
+                print(f"[CRON] Intentando envío a usuario: {uid}")
                 await _maybe_await(send_message(uid, noticia["message"]))
+                print(f"[CRON] -> Éxito enviando a {uid}")
             except Exception as e:
-                print(f"[CRON] Error enviando a {uid}: {e}")
+                print(f"[CRON] -> Error enviando a {uid}: {e}")
                 failed_count += 1
 
         await _maybe_await(mark_news_sent(news_hash))
