@@ -5,9 +5,7 @@ actual persistence implementation moves behind repository adapters.
 """
 
 from bot.repositories.factory import create_repository
-from bot.repositories.supabase_repository import create_supabase_client
 
-supabase = create_supabase_client()
 _repository_override = None
 _repository_instance = None
 
@@ -34,7 +32,7 @@ def _repository():
     if _repository_override is not None:
         return _repository_override
     if _repository_instance is None:
-        _repository_instance = create_repository(supabase_client=supabase)
+        _repository_instance = create_repository()
     return _repository_instance
 
 
@@ -62,12 +60,16 @@ def get_news_subscribers() -> list:
     return _repository().get_news_subscribers()
 
 
-def is_news_sent(news_hash: str) -> bool:
-    return _repository().is_news_sent(news_hash)
+def is_news_sent(news_hash: str, chat_id: int) -> bool:
+    return _repository().is_news_sent(news_hash, chat_id)
 
 
-def mark_news_sent(news_hash: str) -> bool:
-    return _repository().mark_news_sent(news_hash)
+def mark_news_sent(news_hash: str, chat_id: int) -> bool:
+    return _repository().mark_news_sent(news_hash, chat_id)
+
+
+def cleanup_old_data() -> None:
+    return _repository().cleanup_old_data()
 
 
 def get_user_stats() -> dict:

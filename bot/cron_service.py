@@ -22,18 +22,21 @@ def run_news_cron(
 
     for noticia in noticias_nuevas:
         news_hash = noticia["hash"]
-        if is_news_sent(news_hash):
-            continue
-
+        any_sent = False
         for uid in usuarios:
+            if is_news_sent(news_hash, uid):
+                continue
+
             try:
                 send_message(uid, noticia["message"])
+                mark_news_sent(news_hash, uid)
+                any_sent = True
             except Exception as e:
                 print(f"Error enviando a {uid}: {e}")
                 failed_count += 1
 
-        mark_news_sent(news_hash)
-        enviadas_count += 1
+        if any_sent:
+            enviadas_count += 1
 
     update_bot_health("ok")
     return {"status": "ok", "news_sent": enviadas_count, "send_errors": failed_count}

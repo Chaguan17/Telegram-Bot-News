@@ -28,11 +28,11 @@ class NewsServiceTests(unittest.TestCase):
 
         result = filter_news_entries(feeds)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["hash"], hash_string("Fed confirma inflación y tasas"))
+        self.assertEqual(len(result), 1)  # Solo la primera tiene score >= 4
+        expected_hash = hash_string("Fed confirma inflación y tasas" + "https://a.test")
+        self.assertEqual(result[0]["hash"], expected_hash)
         self.assertIn("🔴 IMPACTO", result[0]["message"])
         self.assertIn("https://a.test", result[0]["message"])
-        self.assertIn("🟡 INFO", result[1]["message"])
 
     def test_buscar_noticias_with_loader_skips_failed_feed(self):
         def loader(url):

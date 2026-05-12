@@ -17,24 +17,28 @@ class FakeStatement:
     async def run(self):
         self.db.calls.append(("run", self.sql, self.params))
         if "SELECT chat_id FROM users" in self.sql:
-            return SimpleNamespace(results=[{"chat_id": 1}, {"chat_id": 2}])
+            return SimpleNamespace(results=[{"chat_id": 1}, {"chat_id": 2}], success=True)
         if "SELECT news_enabled, created_at FROM users" in self.sql:
             return SimpleNamespace(results=[
                 {"news_enabled": 1, "created_at": "2099-01-01 00:00:00"},
                 {"news_enabled": 0, "created_at": "2099-01-01 00:00:00"},
-            ])
+            ], success=True)
         if "SELECT command, created_at FROM command_log" in self.sql:
             return SimpleNamespace(results=[
                 {"command": "/start", "created_at": "2099-01-01 00:00:00"},
                 {"command": "/prices", "created_at": "2099-01-01 00:00:00"},
-            ])
+            ], success=True)
         if "SELECT created_at FROM sent_news" in self.sql:
-            return SimpleNamespace(results=[{"created_at": "2099-01-01 00:00:00"}])
-        return SimpleNamespace(results=[])
+            return SimpleNamespace(results=[{"created_at": "2099-01-01 00:00:00"}], success=True)
+        return SimpleNamespace(results=[], success=True)
+
+    async def all(self):
+        # En este mock, all() devuelve lo mismo que run()
+        return await self.run()
 
     async def first(self):
         self.db.calls.append(("first", self.sql, self.params))
-        if self.params == ("sent",):
+        if self.params == ("sent", 1):
             return {"news_hash": "sent"}
         if "SELECT last_cron_at" in self.sql:
             return {
@@ -42,7 +46,7 @@ class FakeStatement:
                 "last_cron_status": "ok",
                 "updated_at": "2099-01-01 00:00:00",
             }
-        if "SELECT COUNT(*) AS total FROM sent_news" in self.sql:
+        if "SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news" in self.sql:
             return {"total": 7}
         return None
 
@@ -68,7 +72,7 @@ class D1BindingRepositoryTests(unittest.IsolatedAsyncioTestCase):
             async def first(self):
                 if "SELECT timezone FROM users" in self.sql:
                     return SimpleNamespace(timezone="America/Caracas")
-                if "SELECT COUNT(*) AS total FROM sent_news" in self.sql:
+                if "SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news" in self.sql:
                     return SimpleNamespace(total=7)
                 return await super().first()
 
@@ -94,11 +98,11 @@ class D1BindingRepositoryTests(unittest.IsolatedAsyncioTestCase):
         db = FakeD1()
         repo = D1BindingRepository(db)
 
-        self.assertTrue(await repo.is_news_sent("sent"))
-        self.assertFalse(await repo.is_news_sent("new"))
-        self.assertTrue(await repo.mark_news_sent("new"))
+        self.assertTrue(await repo.is_news_sent("sent", 1))
+        self.assertFalse(await repo.is_news_sent("new", 1))
+        self.assertTrue(await repo.mark_news_sent("new", 1))
 
-        self.assertTrue(any(call[0] == "run" and call[2] == ("new",) for call in db.calls))
+        self.assertTrue(any(call[0] == "run" and call[2] == ("new", 1) for call in db.calls))
 
     async def test_update_bot_health_writes_status(self):
         db = FakeD1()
@@ -125,6 +129,18 @@ class D1BindingRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["new_users_by_day"], {"2099-01-01": 2})
         self.assertEqual(stats["total_news_sent"], 7)
         self.assertEqual(stats["last_cron_status"], "ok")
+
+    async def test_cleanup_old_data_executes_deletes(self):
+        db = FakeD1()
+        repo = D1BindingRepository(db)
+
+        await repo.cleanup_old_data()
+
+        run_calls = [call for call in db.calls if call[0] == "run"]
+        # Debería haber 2 llamadas a DELETE
+        self.assertEqual(len(run_calls), 2)
+        self.assertTrue(any("DELETE FROM command_log" in call[1] for call in run_calls))
+        self.assertTrue(any("DELETE FROM sent_news" in call[1] for call in run_calls))
 
 
 if __name__ == "__main__":

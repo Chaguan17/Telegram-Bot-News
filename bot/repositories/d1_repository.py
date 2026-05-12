@@ -101,22 +101,22 @@ class D1Repository:
             print(f"Error en get_news_subscribers: {e}")
             return []
 
-    def is_news_sent(self, news_hash: str) -> bool:
+    def is_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             row = self._execute(
-                "SELECT news_hash FROM sent_news WHERE news_hash = ?",
-                (news_hash,),
+                "SELECT news_hash FROM sent_news WHERE news_hash = ? AND chat_id = ?",
+                (news_hash, chat_id),
             ).fetchone()
             return row is not None
         except Exception as e:
             print(f"Error en is_news_sent: {e}")
             return False
 
-    def mark_news_sent(self, news_hash: str) -> bool:
+    def mark_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             self._execute(
-                "INSERT OR IGNORE INTO sent_news (news_hash) VALUES (?)",
-                (news_hash,),
+                "INSERT OR IGNORE INTO sent_news (news_hash, chat_id) VALUES (?, ?)",
+                (news_hash, chat_id),
             )
             self.connection.commit()
             return True
@@ -169,6 +169,18 @@ class D1Repository:
             self.connection.commit()
         except Exception as e:
             print(f"Error en log_command: {e}")
+
+    def cleanup_old_data(self) -> None:
+        try:
+            print("[SQLite] Ejecutando limpieza de datos antiguos...")
+            # Limpiamos logs de comandos de más de 7 días
+            self._execute("DELETE FROM command_log WHERE created_at < datetime('now', '-7 days')")
+            # Limpiamos noticias enviadas de más de 3 días
+            self._execute("DELETE FROM sent_news WHERE created_at < datetime('now', '-3 days')")
+            self.connection.commit()
+            print("[SQLite] Limpieza completada.")
+        except Exception as e:
+            print(f"Error en cleanup_old_data: {e}")
 
     def update_bot_health(self, status: str = "ok") -> None:
         try:
@@ -226,7 +238,7 @@ class D1Repository:
             health = self._execute(
                 "SELECT last_cron_at, last_cron_status, updated_at FROM bot_health WHERE id = 1"
             ).fetchone()
-            total_news = self._execute("SELECT COUNT(*) AS total FROM sent_news").fetchone()
+            total_news = self._execute("SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news").fetchone()
 
             return {
                 "total_users": total_users,
