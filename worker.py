@@ -161,3 +161,4 @@ class Default(WorkerEntrypoint):
             update_bot_health=repository.update_bot_health,
         )
         print(f"cron processed: {result}")
+        return result
