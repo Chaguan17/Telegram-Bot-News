@@ -47,6 +47,7 @@ async def run_news_cron_async(
     mark_news_sent,
     send_message,
     update_bot_health,
+    ignore_sent=False,
 ) -> dict:
     """Async cron orchestration for Cloudflare-friendly runtimes."""
     noticias_nuevas = await _maybe_await(buscar_noticias())
@@ -61,9 +62,12 @@ async def run_news_cron_async(
         news_hash = noticia["hash"]
         already_sent = await _maybe_await(is_news_sent(news_hash))
         
-        if already_sent:
+        if already_sent and not ignore_sent:
             print(f"[CRON] Noticia saltada (ya enviada): {noticia['hash']} - {noticia['message'][:30]}...")
             continue
+
+        if ignore_sent and already_sent:
+            print(f"[CRON] MODO FORCE: Re-enviando noticia ya conocida: {noticia['hash']}")
 
         print(f"[CRON] Enviando noticia nueva: {noticia['hash']}")
         for uid in usuarios:

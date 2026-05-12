@@ -117,12 +117,15 @@ class Default(WorkerEntrypoint):
         if pathname == "/api/debug-cron":
             try:
                 print("[DEBUG] Disparo manual de Cron solicitado via URL")
-                # Pasamos el env directamente si es necesario, pero WorkerEntrypoint ya tiene self.env
-                result = await self.scheduled(None, self.env, None)
+                query = urlparse(request.url).query
+                params = parse_qs(query)
+                force = params.get("force", ["0"])[0] == "1"
+                
+                result = await self.scheduled(None, self.env, force=force)
                 return json_response({
                     "status": "debug_cron_triggered", 
                     "result": result,
-                    "info": "Si 'result' es 0, puede ser por el filtro de score (>=4) o porque no hay noticias nuevas."
+                    "info": "Si 'result' es 0, puede ser por el filtro de score (>=4) o porque no hay noticias nuevas. Usá ?force=1 para ignorar duplicados."
                 })
             except Exception as e:
                 import traceback
@@ -148,7 +151,7 @@ class Default(WorkerEntrypoint):
 
         return json_response({"error": "Not found"}, status=404)
 
-    async def scheduled(self, event, env, ctx):
+    async def scheduled(self, event, env, ctx=None, force=False):
         repository = D1BindingRepository(self.env.DB)
         telegram = CloudflareTelegramClient(self.env.TELEGRAM_TOKEN)
 
@@ -159,6 +162,7 @@ class Default(WorkerEntrypoint):
             mark_news_sent=repository.mark_news_sent,
             send_message=telegram.send_message,
             update_bot_health=repository.update_bot_health,
+            ignore_sent=force
         )
         print(f"cron processed: {result}")
         return result
