@@ -71,7 +71,8 @@ def markets_response(timezone_name: str, obtener_estado_mercados) -> str:
 def news_messages(noticias: list) -> list:
     if not noticias:
         return ["No he encontrado noticias de alto impacto en los feeds en este momento."]
-    return ["📰 **Top 3 Noticias de Impacto Actuales:**"] + [n["message"] for n in noticias]
+    # Limit to top 3 for the manual command display
+    return ["📰 **Top 3 Noticias de Impacto Actuales:**"] + [n["message"] for n in noticias[:3]]
 
 
 def stats_response(stats: dict) -> str:
