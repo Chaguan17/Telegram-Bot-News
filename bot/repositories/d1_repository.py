@@ -241,6 +241,7 @@ class D1Repository:
             total_news = self._execute("SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news").fetchone()
 
             return {
+                "total": total_users,
                 "total_users": total_users,
                 "subscribed": subscribed,
                 "unsubscribed": total_users - subscribed,
@@ -257,3 +258,10 @@ class D1Repository:
         except Exception as e:
             print(f"Error en get_dashboard_stats: {e}")
             return {"error": str(e)}
+
+    def get_user_stats(self) -> dict:
+        """Alias for compatibility with the webhook service."""
+        stats = self.get_dashboard_stats()
+        if "total_users" in stats and "total" not in stats:
+            stats["total"] = stats["total_users"]
+        return stats

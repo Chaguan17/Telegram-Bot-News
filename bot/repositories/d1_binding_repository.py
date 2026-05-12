@@ -9,6 +9,10 @@ class D1BindingRepository:
 
     @staticmethod
     def _results(result):
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
         if isinstance(result, dict):
             return result.get("results", [])
         return getattr(result, "results", [])
@@ -17,9 +21,18 @@ class D1BindingRepository:
     def _value(row, key: str, default=None):
         if row is None:
             return default
+        # Si row es un dict (ya convertido por to_py)
         if isinstance(row, dict):
             return row.get(key, default)
-        return getattr(row, key, default)
+        # Si es un PyProxy (objeto JS), intentamos acceder como atributo
+        try:
+            val = getattr(row, key, default)
+            # Si el valor obtenido es otro Proxy, intentamos convertirlo
+            if hasattr(val, "to_py"):
+                return val.to_py()
+            return val
+        except Exception:
+            return default
 
     async def _run(self, sql: str, *params):
         print(f"[D1] RUN: {sql} | PARAMS: {params}")
@@ -272,6 +285,7 @@ class D1BindingRepository:
             total_news = await self._first("SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news")
 
             return {
+                "total": total_users,
                 "total_users": total_users,
                 "subscribed": subscribed,
                 "unsubscribed": total_users - subscribed,
@@ -288,3 +302,10 @@ class D1BindingRepository:
         except Exception as e:
             print(f"Error en get_dashboard_stats: {e}")
             return {"error": str(e)}
+
+    async def get_user_stats(self) -> dict:
+        """Alias for compatibility with the webhook service."""
+        stats = await self.get_dashboard_stats()
+        if "total_users" in stats and "total" not in stats:
+            stats["total"] = stats["total_users"]
+        return stats

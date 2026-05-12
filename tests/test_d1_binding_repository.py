@@ -130,6 +130,15 @@ class D1BindingRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["total_news_sent"], 7)
         self.assertEqual(stats["last_cron_status"], "ok")
 
+    async def test_get_user_stats_is_alias_of_dashboard(self):
+        db = FakeD1()
+        repo = D1BindingRepository(db)
+
+        stats = await repo.get_user_stats()
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["subscribed"], 1)
+        self.assertEqual(stats["unsubscribed"], 1)
+
     async def test_cleanup_old_data_executes_deletes(self):
         db = FakeD1()
         repo = D1BindingRepository(db)

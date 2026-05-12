@@ -35,7 +35,10 @@ class D1RepositoryTests(unittest.TestCase):
         self.assertEqual(repo.get_news_subscribers(), [1])
         self.assertEqual(repo.get_user_timezone(1), "America/Caracas")
         self.assertEqual(repo.get_user_timezone(999), "Europe/Madrid")
-        self.assertEqual(repo.get_user_stats(), {"total": 2, "subscribed": 1, "unsubscribed": 1})
+        stats = repo.get_user_stats()
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["subscribed"], 1)
+        self.assertEqual(stats["unsubscribed"], 1)
 
     def test_news_dedupe_and_ban_user(self):
         repo = create_repository()
