@@ -70,17 +70,25 @@ async def run_news_cron_async(
             print(f"[CRON] MODO FORCE: Re-enviando noticia ya conocida: {noticia['hash']}")
 
         print(f"[CRON] Enviando noticia nueva: {noticia['hash']}")
+        any_success = False
         for uid in usuarios:
             try:
                 print(f"[CRON] Intentando envío a usuario: {uid}")
                 await _maybe_await(send_message(uid, noticia["message"]))
                 print(f"[CRON] -> Éxito enviando a {uid}")
+                any_success = True
             except Exception as e:
                 print(f"[CRON] -> Error enviando a {uid}: {e}")
                 failed_count += 1
 
-        await _maybe_await(mark_news_sent(news_hash))
-        enviadas_count += 1
+        # Solo marcamos como enviada si logramos mandar al menos un mensaje
+        # o si estamos en modo 'force' (ignore_sent)
+        if any_success or ignore_sent:
+            print(f"[DB] Registrando noticia como enviada (Hash: {news_hash})")
+            await _maybe_await(mark_news_sent(news_hash))
+            enviadas_count += 1
+        else:
+            print(f"[WARN] No se registró el hash {news_hash} porque todos los envíos fallaron.")
 
     await _maybe_await(update_bot_health("ok"))
     return {"status": "ok", "news_sent": enviadas_count, "send_errors": failed_count}
