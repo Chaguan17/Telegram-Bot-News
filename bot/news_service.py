@@ -30,6 +30,7 @@ RSS_FEEDS = [
     "https://es.beincrypto.com/feed/",
     "https://www.criptonoticias.com/feed/",
     "https://www.coindesk.com/arc/outboundfeeds/rss?outputType=xml",
+    "https://cryptonews.com/news/feed/",
     "https://www.investing.com/rss/news_25.rss"
 ]
 
