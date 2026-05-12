@@ -164,6 +164,7 @@ class Default(WorkerEntrypoint):
             mark_news_sent=repository.mark_news_sent,
             send_message=telegram.send_message,
             update_bot_health=repository.update_bot_health,
+            cleanup_old_data=repository.cleanup_old_data,
             ignore_sent=force
         )
         print(f"cron processed: {result}")

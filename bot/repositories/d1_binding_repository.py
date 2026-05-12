@@ -204,6 +204,17 @@ class D1BindingRepository:
         except Exception as e:
             print(f"Error en log_command: {e}")
 
+    async def cleanup_old_data(self) -> None:
+        try:
+            print("[D1] Ejecutando limpieza de datos antiguos...")
+            # Limpiamos logs de comandos de más de 7 días
+            res_commands = await self._run("DELETE FROM command_log WHERE created_at < datetime('now', '-7 days')")
+            # Limpiamos noticias enviadas de más de 3 días (evita spam por amnesia)
+            res_news = await self._run("DELETE FROM sent_news WHERE created_at < datetime('now', '-3 days')")
+            print(f"[D1] Limpieza completada.")
+        except Exception as e:
+            print(f"Error en cleanup_old_data: {e}")
+
     async def update_bot_health(self, status: str = "ok") -> None:
         try:
             now = datetime.now(timezone.utc).isoformat()

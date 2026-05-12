@@ -47,6 +47,7 @@ async def run_news_cron_async(
     mark_news_sent,
     send_message,
     update_bot_health,
+    cleanup_old_data=None,
     ignore_sent=False,
 ) -> dict:
     """Async cron orchestration for Cloudflare-friendly runtimes."""
@@ -96,6 +97,9 @@ async def run_news_cron_async(
 
         if any_user_sent_in_this_run:
             enviadas_count += 1
+
+    if cleanup_old_data:
+        await _maybe_await(cleanup_old_data())
 
     await _maybe_await(update_bot_health("ok"))
     return {"status": "ok", "news_processed": len(noticias_candidatas), "news_sent": enviadas_count, "send_errors": failed_count}
