@@ -1,6 +1,6 @@
 # Understanding Sentinel
 
-Este documento es para humanos. La meta no es “saber qué archivo tocar”, sino entender **qué problema resuelve este proyecto, cómo piensa, y cómo no romperlo por operar en piloto automático**.
+Este documento es para humanos. La meta no es "saber qué archivo tocar", sino entender **qué problema resuelve este proyecto, cómo piensa, y cómo no romperlo por operar en piloto automático**.
 
 ## El proyecto en una frase
 
@@ -20,23 +20,23 @@ El bot tiene dos mundos:
 ```text
 Lo que el bot sabe hacer        Dónde corre el bot
 ------------------------        ------------------
-responder comandos              Vercel o Cloudflare
-buscar noticias                 Supabase o D1
-calcular mercados               GitHub Actions o Cron Trigger
+responder comandos              Cloudflare Workers
+buscar noticias                 Cloudflare D1
+calcular mercados               Cloudflare Scheduled Trigger
 formatear mensajes              Telegram HTTP API
 ```
 
 Una buena arquitectura mantiene esos mundos separados.
 
-Si mezclás “qué hace” con “dónde corre”, cada migración se vuelve una cirugía mayor. Si los separás, cambiar de plataforma es cambiar adaptadores.
+Si mezclás "qué hace" con "dónde corre", cada cambio de infraestructura se vuelve una cirugía mayor. Si los separás, cambiar de plataforma es cambiar adaptadores.
 
 ## Mapa mental del repo
 
 ```text
-api/                    Entrada actual Vercel
-cloudflare/             Entrada nueva Cloudflare
-bot/                    Lógica del bot
+worker.py               Entrypoint: routing HTTP + cron scheduled
+bot/                    Lógica del bot (sin dependencias de runtime)
 bot/repositories/       Persistencia intercambiable
+cloudflare/d1/          Schema SQLite y herramientas de migración
 tests/                  Red de seguridad
 public/                 Dashboard estático
 ```
@@ -73,17 +73,16 @@ bot/webhook_service.py
 ```
 
 Este archivo responde la pregunta:
+> "Cuando llega un update de Telegram, ¿qué hacemos?"
 
-> “Cuando llega un update de Telegram, qué hacemos?”
-
-No debería saber demasiado sobre Cloudflare ni Vercel. Solo recibe:
+No sabe nada de Cloudflare. Solo recibe:
 
 - `repository`
 - `telegram`
 - `admin_chat_id`
-- providers de precios/noticias
+- providers de precios/noticias como callables
 
-Eso es inyección de dependencias. No es moda: es lo que permite testear y migrar.
+Eso es inyección de dependencias. No es moda: es lo que permite testear y migrar sin tocar la lógica.
 
 ### 3. Después entendé la base de datos
 
@@ -91,98 +90,97 @@ Archivos:
 
 ```text
 bot/db.py
-bot/repositories/
+bot/repositories/d1_binding_repository.py
 ```
 
 La idea:
 
 ```text
 bot/db.py
- -> repository
- -> Supabase o D1
+ → D1BindingRepository
+ → Cloudflare D1 (SQLite)
 ```
 
-`bot/db.py` existe para no romper código viejo. Los repositories existen para no atar la app a una base concreta.
+`bot/db.py` expone las funciones de siempre (`add_user`, `get_news_subscribers`, `mark_news_sent`, etc.) como fachada estable. El repository es la pieza que realmente habla con D1.
 
-### 4. Recién después mirá Cloudflare
+### 4. Recién después mirá el Worker
 
 Archivo:
 
 ```text
-cloudflare/worker.py
+worker.py
 ```
 
-Este archivo es infraestructura. Si empezás por acá, vas a creer que el proyecto “es Cloudflare”. No. Cloudflare es solo el nuevo lugar donde corre.
+Este archivo es infraestructura. Si empezás por acá, vas a creer que el proyecto "es Cloudflare". No. Cloudflare es solo el lugar donde corre.
 
 El Worker debería ser aburrido:
 
 - parsea request,
-- crea adapters,
+- construye adapters (`D1BindingRepository`, `CloudflareTelegramClient`),
+- inyecta los loaders async de RSS y Binance,
 - llama servicios,
 - devuelve response.
 
-Si el Worker empieza a tener demasiada lógica, la arquitectura se está pudriendo.
+Si el Worker empieza a tener demasiada lógica, la arquitectura se está pudriendo. Hoy tiene más de lo ideal — `CloudflareTelegramClient`, `fetch_feed_entries` y `fetch_binance_prices` viven ahí cuando deberían estar en su propio módulo. Es deuda técnica conocida.
 
 ## Flujo de `/prices`
 
 ```text
 Telegram manda /prices
- -> runtime recibe webhook
- -> webhook_service detecta comando
- -> price_service formatea precios
- -> TelegramHttpClient envía respuesta
+ → worker.py recibe webhook POST
+ → webhook_service detecta comando
+ → price_service formatea precios
+ → CloudflareTelegramClient envía respuesta
 ```
 
-Lo importante: el formato de precios no vive en Cloudflare. Cloudflare solo provee un loader async.
+Lo importante: el formato de precios no vive en el Worker. El Worker solo provee el loader async que busca los datos en Binance.
 
 ## Flujo de noticias automáticas
 
 ```text
-Cron cada 15 minutos
- -> cron_service busca noticias
- -> news_service puntúa RSS por keywords
- -> repository pregunta si ya fue enviada
- -> Telegram envía solo noticias nuevas
- -> repository marca hash como enviado
- -> repository actualiza bot_health
+Cloudflare Scheduled Trigger (cada 15 min)
+ → worker.scheduled()
+ → cron_service busca noticias
+ → news_service puntúa feeds RSS por keywords
+ → D1: pregunta si el hash ya fue enviado
+ → CloudflareTelegramClient envía solo noticias nuevas
+ → D1: marca hash como enviado
+ → D1: actualiza bot_health
 ```
 
-La tabla `sent_news` es el mecanismo anti-duplicados.
+La tabla `sent_news` es el mecanismo anti-duplicados. El cron no depende de GitHub Actions ni servicios externos — es un Scheduled Trigger nativo de Cloudflare configurado en `wrangler.jsonc`.
 
 ## Flujo de mercados
 
-El comando `/mercados` no pregunta a una API externa. Calcula estado usando horarios de mercado y timezone.
-
-La clave es que cada mercado se evalúa en su propia zona horaria:
+El comando `/mercados` no consulta ninguna API externa. Calcula el estado de cada bolsa usando sus horarios oficiales y zonas horarias locales:
 
 - Tokio: `Asia/Tokyo`
 - Europa: `Europe/Madrid`
 - EE.UU.: `America/New_York`
 
-Después se muestra en la zona horaria del usuario.
+El resultado se muestra en la zona horaria del usuario (configurable con `/timezone`).
 
-## Qué significa “serverless” acá
+## Qué significa "serverless" acá
 
-Serverless no significa “sin arquitectura”.
+Serverless no significa "sin arquitectura".
 
 Significa:
 
 - no administrás servidores,
 - cada request debe ser independiente,
 - no podés confiar en estado global mutable,
-- los secretos viven en variables/secrets del proveedor,
-- las tareas periódicas son triggers, no procesos vivos.
+- los secretos viven en Wrangler secrets,
+- las tareas periódicas son Scheduled Triggers, no procesos vivos.
 
-Por eso el diseño evita guardar estado en memoria y empuja todo lo importante a DB.
+Por eso el diseño evita guardar estado en memoria y empuja todo lo importante a D1.
 
 ## Qué NO hacer
 
 - No meter queries directas a D1 dentro de `webhook_service.py`.
-- No llamar Supabase desde `command_service.py`.
-- No duplicar comandos entre Vercel y Cloudflare.
-- No mover Telegram webhook antes de validar Worker + D1.
-- No convertir `cloudflare/worker.py` en “el nuevo monolito”.
-- No borrar Supabase/Vercel hasta que el corte esté probado.
+- No llamar al Worker desde `command_service.py`.
+- No agregar lógica de negocio en `worker.py` — solo routing y construcción de adapters.
+- No mover los adapters Cloudflare (`CloudflareTelegramClient`, loaders async) a los servicios del dominio.
+- No hardcodear URLs o tokens en ningún archivo — todo por Wrangler secrets.
 
 ## Cómo cambiar algo sin romperlo
 
@@ -193,45 +191,43 @@ Usá este orden:
 3. Agregá o ajustá test.
 4. Corré:
 
-```powershell
+```bash
 .venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
 
-5. Recién después seguí.
+1. Recién después seguí.
 
 Ese orden importa. Si codeás primero y entendés después, vas a estar construyendo una casa moviendo paredes al azar.
 
 ## Qué mirar cuando algo falla
 
 | Síntoma | Dónde mirar primero |
-|---|---|
+| --- | --- |
 | Comando responde mal | `bot/command_service.py`, `bot/webhook_service.py` |
-| No envía noticias | `bot/cron_service.py`, `bot/news_service.py`, `sent_news` |
+| No envía noticias | `bot/cron_service.py`, `bot/news_service.py`, tabla `sent_news` |
 | Duplicados de noticias | `is_news_sent`, `mark_news_sent`, tabla `sent_news` |
-| Admin bloqueado | `ADMIN_CHAT_ID` |
-| Stats rotas | `get_dashboard_stats`, `bot_health`, `command_log` |
-| Cloudflare falla | `cloudflare/worker.py`, bindings/secrets en Wrangler |
-| Vercel falla | `api/webhook.py`, `api/cron.py`, env vars Vercel |
+| Admin bloqueado | secret `ADMIN_CHAT_ID` en Wrangler |
+| Stats rotas | `get_dashboard_stats`, tabla `bot_health`, tabla `command_log` |
+| Worker falla | `worker.py`, bindings y secrets en `wrangler.jsonc` |
+| Cron no dispara | Scheduled Triggers en Cloudflare dashboard, `worker.scheduled()` |
 
 ## Cómo saber si entendiste el proyecto
 
 Podés explicar estas tres frases sin mirar código:
 
-1. “El runtime adapta; no decide negocio.”
-2. “El repository persiste; no decide comandos.”
-3. “Los servicios orquestan reglas; no saben si están en Vercel o Cloudflare.”
+1. "El runtime adapta; no decide negocio."
+2. "El repository persiste; no decide comandos."
+3. "Los servicios orquestan reglas; no saben que están corriendo en Cloudflare."
 
 Si esas tres frases te hacen sentido, ya estás leyendo el proyecto como arquitecto, no como turista mirando archivos.
 
-## Siguiente aprendizaje recomendado
-
-Leé en este orden:
+## Orden de lectura recomendado
 
 1. `bot/command_service.py`
 2. `bot/webhook_service.py`
 3. `bot/cron_service.py`
 4. `bot/repositories/d1_binding_repository.py`
-5. `cloudflare/worker.py`
+5. `worker.py`
 6. `tests/test_webhook_service.py`
 7. `tests/test_cron_service.py`
 
