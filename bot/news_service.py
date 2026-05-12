@@ -28,7 +28,8 @@ KEYWORDS = {
 
 RSS_FEEDS = [
     "https://es.beincrypto.com/feed/",
-    "https://es.cointelegraph.com/rss",
+    "https://www.criptonoticias.com/feed/",
+    "https://www.coindesk.com/arc/outboundfeeds/rss?outputType=xml",
     "https://www.investing.com/rss/news_25.rss"
 ]
 
@@ -58,7 +59,7 @@ def filter_news_entries(feeds, *, keywords=None, per_feed_limit: int = 5, max_re
             link = _entry_value(entry, "link")
             score = sum(peso for pal, peso in keywords.items() if pal in titulo.lower())
 
-            if score >= 4 or "beincrypto" in url:
+            if score >= 4:
                 nivel = "🔴 IMPACTO" if score >= 7 else "🟡 INFO"
                 msg = f"{nivel}\n📰 *{titulo}*\n🔗 [Ver noticia]({link})"
                 encontradas.append({

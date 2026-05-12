@@ -115,9 +115,20 @@ class Default(WorkerEntrypoint):
             return json_response(await repository.get_dashboard_stats())
 
         if pathname == "/api/debug-cron":
-            print("[DEBUG] Disparo manual de Cron solicitado via URL")
-            await self.scheduled(None, None, None)
-            return json_response({"status": "debug_cron_triggered", "msg": "Revisa los logs."})
+            try:
+                print("[DEBUG] Disparo manual de Cron solicitado via URL")
+                # Pasamos el env directamente si es necesario, pero WorkerEntrypoint ya tiene self.env
+                result = await self.scheduled(None, self.env, None)
+                return json_response({
+                    "status": "debug_cron_triggered", 
+                    "result": result,
+                    "info": "Si 'result' es 0, puede ser por el filtro de score (>=4) o porque no hay noticias nuevas."
+                })
+            except Exception as e:
+                import traceback
+                err_info = traceback.format_exc()
+                print(f"[ERROR] Debug cron fallo: {err_info}")
+                return json_response({"status": "error", "message": str(e), "trace": err_info}, status=500)
 
         if pathname == "/api/webhook":
             if request.method != "POST":
