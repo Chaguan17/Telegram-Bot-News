@@ -114,6 +114,11 @@ class Default(WorkerEntrypoint):
         if pathname == "/api/stats":
             return json_response(await repository.get_dashboard_stats())
 
+        if pathname == "/api/debug-cron":
+            print("[DEBUG] Disparo manual de Cron solicitado via URL")
+            await self.scheduled(None, None, None)
+            return json_response({"status": "debug_cron_triggered", "msg": "Revisa los logs."})
+
         if pathname == "/api/webhook":
             if request.method != "POST":
                 return json_response({"error": "Method not allowed"}, status=405)
