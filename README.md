@@ -140,4 +140,3 @@ GET https://<TU_WORKER_URL>/api/debug-cron?force=1   # ignora deduplicación
 ```
 
 El endpoint `/api/stats` devuelve el estado actual del bot en JSON y alimenta el dashboard público.
-
