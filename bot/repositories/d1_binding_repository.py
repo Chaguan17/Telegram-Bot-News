@@ -36,7 +36,12 @@ class D1BindingRepository:
         statement = self.db.prepare(sql)
         if params:
             statement = statement.bind(*params)
-        return await statement.first()
+        res = await statement.first()
+        try:
+            # Convert JS Proxy to Python dict
+            return res.to_py() if res is not None else None
+        except (AttributeError, Exception):
+            return res
 
     async def _all(self, sql: str, *params):
         print(f"[D1] ALL: {sql} | PARAMS: {params}")
@@ -44,9 +49,11 @@ class D1BindingRepository:
         if params:
             statement = statement.bind(*params)
         res = await statement.all()
-        if not res.success:
-            print(f"[D1] ERROR: {res.error}")
-        return res
+        try:
+            # Convert JS Proxy to Python dict
+            return res.to_py() if res is not None else {"results": [], "success": True}
+        except (AttributeError, Exception):
+            return res
 
     async def get_all_users(self) -> list:
         try:
