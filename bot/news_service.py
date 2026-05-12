@@ -45,7 +45,7 @@ def _entry_value(entry, key: str) -> str:
     return getattr(entry, key, "")
 
 
-def filter_news_entries(feeds, *, keywords=None, per_feed_limit: int = 5, max_results: int = 3) -> list:
+def filter_news_entries(feeds, *, keywords=None, per_feed_limit: int = 5, max_results: int = 15) -> list:
     """Filter already-fetched RSS entries into high-impact bot messages.
 
     `feeds` is an iterable of `(url, entries)` pairs. This keeps RSS fetching
@@ -64,7 +64,7 @@ def filter_news_entries(feeds, *, keywords=None, per_feed_limit: int = 5, max_re
                 nivel = "🔴 IMPACTO" if score >= 7 else "🟡 INFO"
                 msg = f"{nivel}\n📰 *{titulo}*\n🔗 [Ver noticia]({link})"
                 encontradas.append({
-                    "hash": hash_string(titulo[:90]),
+                    "hash": hash_string(titulo + link),
                     "message": msg,
                     "score": score,
                 })

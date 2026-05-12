@@ -31,13 +31,16 @@ def parse_rss_custom(xml_text: str) -> list[RSSEntry]:
                 
                 for child in node:
                     child_local = child.tag.split('}')[-1]
+                    # Use "".join(child.itertext()) to get all text including nested tags
+                    content = "".join(child.itertext()).strip()
+                    
                     if child_local == 'title':
-                        title = child.text or "Sin título"
+                        title = content or "Sin título"
                     elif child_local == 'link':
                         # RSS uses text inside <link>, Atom uses href attribute
-                        link = child.text or child.get('href', '')
+                        link = content or child.get('href', '')
                     elif child_local in ('pubDate', 'published', 'updated'):
-                        published = child.text or ""
+                        published = content
                 
                 if title or link:
                     entries.append(RSSEntry(title=title, link=link, published=published))

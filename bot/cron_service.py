@@ -50,15 +50,20 @@ async def run_news_cron_async(
     ignore_sent=False,
 ) -> dict:
     """Async cron orchestration for Cloudflare-friendly runtimes."""
-    noticias_nuevas = await _maybe_await(buscar_noticias())
+    noticias_candidatas = await _maybe_await(buscar_noticias())
     usuarios = await _maybe_await(get_news_subscribers())
 
-    print(f"[CRON] Inicio. Suscriptores: {len(usuarios)}, Noticias en feed: {len(noticias_nuevas)}")
+    print(f"[CRON] Inicio. Suscriptores: {len(usuarios)}, Candidatas en feed: {len(noticias_candidatas)}")
 
     enviadas_count = 0
     failed_count = 0
+    MAX_NOTICIAS_POR_CRON = 3
 
-    for noticia in noticias_nuevas:
+    for noticia in noticias_candidatas:
+        if enviadas_count >= MAX_NOTICIAS_POR_CRON and not ignore_sent:
+            print(f"[CRON] Límite de {MAX_NOTICIAS_POR_CRON} noticias alcanzado. Deteniendo búsqueda.")
+            break
+
         news_hash = noticia["hash"]
         already_sent = await _maybe_await(is_news_sent(news_hash))
         
@@ -69,7 +74,13 @@ async def run_news_cron_async(
         if ignore_sent and already_sent:
             print(f"[CRON] MODO FORCE: Re-enviando noticia ya conocida: {noticia['hash']}")
 
-        print(f"[CRON] Enviando noticia nueva: {noticia['hash']}")
+        print(f"[CRON] PROCESANDO NUEVA: {noticia['hash']} (Score: {noticia.get('score', '?')})")
+        
+        if not usuarios:
+            print("[CRON] WARN: No hay suscriptores habilitados. No se enviará nada.")
+            # Si no hay usuarios, no la marcamos como enviada para que intente después
+            continue
+
         any_success = False
         for uid in usuarios:
             try:
@@ -91,4 +102,4 @@ async def run_news_cron_async(
             print(f"[WARN] No se registró el hash {news_hash} porque todos los envíos fallaron.")
 
     await _maybe_await(update_bot_health("ok"))
-    return {"status": "ok", "news_sent": enviadas_count, "send_errors": failed_count}
+    return {"status": "ok", "news_processed": len(noticias_candidatas), "news_sent": enviadas_count, "send_errors": failed_count}
