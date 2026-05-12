@@ -163,4 +163,3 @@ GET /api/debug-cron[?force=1]
 - Si aparece un nuevo runtime, agregar un adapter; no duplicar lógica.
 - Todo cambio de comportamiento debe tener test en `tests/`.
 - Los adapters Cloudflare (`CloudflareTelegramClient`, loaders async) deben eventualmente moverse fuera de `worker.py`.
-
