@@ -37,10 +37,17 @@ class D1BindingRepository:
         if params:
             statement = statement.bind(*params)
         res = await statement.first()
+        
+        # En Cloudflare Workers (Pyodide), res puede ser un PyProxy que represente null
+        if res is None:
+            return None
+            
         try:
-            # Convert JS Proxy to Python dict
-            return res.to_py() if res is not None else None
+            py_res = res.to_py()
+            # Si to_py devuelve None o un diccionario vacío, tratamos como No Result
+            return py_res if py_res is not None else None
         except (AttributeError, Exception):
+            # Fallback por si res no tiene to_py pero es un valor directo
             return res
 
     async def _all(self, sql: str, *params):
@@ -139,9 +146,10 @@ class D1BindingRepository:
             row = await self._first(
                 "SELECT news_hash FROM sent_news WHERE news_hash = ? AND chat_id = ? LIMIT 1",
                 news_hash,
-                chat_id,
+                int(chat_id),
             )
-            return row is not None
+            # Chequeo ultra-estricto para evitar falsos positivos de PyProxy
+            return bool(row and self._value(row, "news_hash"))
         except Exception as e:
             print(f"Error en is_news_sent: {e}")
             return False
