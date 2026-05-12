@@ -52,20 +52,25 @@ async def run_news_cron_async(
     noticias_nuevas = await _maybe_await(buscar_noticias())
     usuarios = await _maybe_await(get_news_subscribers())
 
+    print(f"[CRON] Inicio. Suscriptores: {len(usuarios)}, Noticias en feed: {len(noticias_nuevas)}")
+
     enviadas_count = 0
     failed_count = 0
 
     for noticia in noticias_nuevas:
         news_hash = noticia["hash"]
         already_sent = await _maybe_await(is_news_sent(news_hash))
+        
         if already_sent:
+            print(f"[CRON] Noticia saltada (ya enviada): {noticia['hash']} - {noticia['message'][:30]}...")
             continue
 
+        print(f"[CRON] Enviando noticia nueva: {noticia['hash']}")
         for uid in usuarios:
             try:
                 await _maybe_await(send_message(uid, noticia["message"]))
             except Exception as e:
-                print(f"Error enviando a {uid}: {e}")
+                print(f"[CRON] Error enviando a {uid}: {e}")
                 failed_count += 1
 
         await _maybe_await(mark_news_sent(news_hash))
