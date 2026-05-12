@@ -134,22 +134,24 @@ class D1BindingRepository:
             print(f"Error en get_news_subscribers: {e}")
             return []
 
-    async def is_news_sent(self, news_hash: str) -> bool:
+    async def is_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             row = await self._first(
-                "SELECT news_hash FROM sent_news WHERE news_hash = ? LIMIT 1",
+                "SELECT news_hash FROM sent_news WHERE news_hash = ? AND chat_id = ? LIMIT 1",
                 news_hash,
+                chat_id,
             )
             return row is not None
         except Exception as e:
             print(f"Error en is_news_sent: {e}")
             return False
 
-    async def mark_news_sent(self, news_hash: str) -> bool:
+    async def mark_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             await self._run(
-                "INSERT OR IGNORE INTO sent_news (news_hash) VALUES (?)",
+                "INSERT OR IGNORE INTO sent_news (news_hash, chat_id) VALUES (?, ?)",
                 news_hash,
+                chat_id,
             )
             return True
         except Exception as e:
@@ -248,7 +250,7 @@ class D1BindingRepository:
             health = await self._first(
                 "SELECT last_cron_at, last_cron_status, updated_at FROM bot_health WHERE id = 1"
             )
-            total_news = await self._first("SELECT COUNT(*) AS total FROM sent_news")
+            total_news = await self._first("SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news")
 
             return {
                 "total_users": total_users,
