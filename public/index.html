@@ -217,8 +217,9 @@
                         <div class="sub">${data.subscribed} suscritos · ${data.unsubscribed} desuscritos</div>
                     </div>
                     <div class="stat-card">
-                        <div class="label">Comandos (${data.command_retention_days || 7} días)</div>
+                        <div class="label">Comandos</div>
                         <div class="value">${data.total_commands_week}</div>
+                        <div class="sub">últimos ${data.command_retention_days || 7} días</div>
                     </div>
                     <div class="stat-card">
                         <div class="label">Noticias Enviadas</div>
