@@ -1,5 +1,6 @@
 import json
 import asyncio
+import os
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
 import js
@@ -16,10 +17,12 @@ from bot.utils.rss_parser import parse_rss_custom
 
 # Cargamos el HTML del dashboard una sola vez al iniciar el worker
 try:
-    with open("public/index.html", "r", encoding="utf-8") as f:
+    base_path = os.path.dirname(__file__)
+    html_path = os.path.join(base_path, "public", "index.html")
+    with open(html_path, "r", encoding="utf-8") as f:
         DASHBOARD_HTML = f.read()
 except Exception as e:
-    DASHBOARD_HTML = f"<h1>Error al cargar el dashboard: {e}</h1>"
+    DASHBOARD_HTML = f"<h1>Error al cargar el dashboard: {e}</h1><p>Ruta intentada: {html_path if 'html_path' in locals() else 'n/a'}</p>"
 
 
 class CloudflareTelegramClient:
