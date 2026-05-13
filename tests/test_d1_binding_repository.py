@@ -28,8 +28,8 @@ class FakeStatement:
                 {"command": "/start", "created_at": "2099-01-01 00:00:00"},
                 {"command": "/prices", "created_at": "2099-01-01 00:00:00"},
             ], success=True)
-        if "SELECT created_at FROM sent_news" in self.sql:
-            return SimpleNamespace(results=[{"created_at": "2099-01-01 00:00:00"}], success=True)
+        if "FROM sent_news" in self.sql and "created_at" in self.sql:
+            return SimpleNamespace(results=[{"created_at": "2099-01-01 00:00:00", "news_hash": "h1"}], success=True)
         return SimpleNamespace(results=[], success=True)
 
     async def all(self):
@@ -128,6 +128,8 @@ class D1BindingRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["news_by_day"], {"2099-01-01": 1})
         self.assertEqual(stats["new_users_by_day"], {"2099-01-01": 2})
         self.assertEqual(stats["total_news_sent"], 7)
+        self.assertEqual(stats["news_retention_days"], 15)
+        self.assertEqual(stats["command_retention_days"], 7)
         self.assertEqual(stats["last_cron_status"], "ok")
 
     async def test_get_user_stats_is_alias_of_dashboard(self):
