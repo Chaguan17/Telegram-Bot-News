@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from bot.config import NEWS_RETENTION_DAYS, COMMAND_LOG_RETENTION_DAYS, CRON_WARN_THRESHOLD_MIN, CRON_ERR_THRESHOLD_MIN
+
 
 
 class D1BindingRepository:
@@ -220,10 +222,10 @@ class D1BindingRepository:
     async def cleanup_old_data(self) -> None:
         try:
             print("[D1] Ejecutando limpieza de datos antiguos...")
-            # Limpiamos logs de comandos de más de 7 días
-            res_commands = await self._run("DELETE FROM command_log WHERE created_at < datetime('now', '-7 days')")
-            # Limpiamos noticias enviadas de más de 3 días (evita spam por amnesia)
-            res_news = await self._run("DELETE FROM sent_news WHERE created_at < datetime('now', '-3 days')")
+            # Limpiamos logs de comandos
+            res_commands = await self._run(f"DELETE FROM command_log WHERE created_at < datetime('now', '-{COMMAND_LOG_RETENTION_DAYS} days')")
+            # Limpiamos noticias enviadas (evita spam por amnesia)
+            res_news = await self._run(f"DELETE FROM sent_news WHERE created_at < datetime('now', '-{NEWS_RETENTION_DAYS} days')")
             print(f"[D1] Limpieza completada.")
         except Exception as e:
             print(f"Error en cleanup_old_data: {e}")
@@ -245,7 +247,7 @@ class D1BindingRepository:
 
     async def get_dashboard_stats(self) -> dict:
         try:
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+            week_ago = (datetime.now(timezone.utc) - timedelta(days=COMMAND_LOG_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
             users = self._results(await self._all("SELECT news_enabled, created_at FROM users"))
             total_users = len(users)
@@ -264,7 +266,7 @@ class D1BindingRepository:
                 commands_by_day[day] = commands_by_day.get(day, 0) + 1
 
             sent_news = self._results(await self._all(
-                "SELECT created_at FROM sent_news WHERE created_at >= ?",
+                "SELECT DISTINCT news_hash, created_at FROM sent_news WHERE created_at >= ?",
                 week_ago,
             ))
             news_by_day = {}
@@ -295,6 +297,10 @@ class D1BindingRepository:
                 "news_by_day": news_by_day,
                 "new_users_by_day": new_users_by_day,
                 "total_news_sent": self._value(total_news, "total", 0),
+                "news_retention_days": NEWS_RETENTION_DAYS,
+                "command_retention_days": COMMAND_LOG_RETENTION_DAYS,
+                "cron_warn_threshold": CRON_WARN_THRESHOLD_MIN,
+                "cron_err_threshold": CRON_ERR_THRESHOLD_MIN,
                 "last_cron_at": self._value(health, "last_cron_at"),
                 "last_cron_status": self._value(health, "last_cron_status"),
                 "updated_at": self._value(health, "updated_at"),

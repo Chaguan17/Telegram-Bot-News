@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from bot.config import NEWS_RETENTION_DAYS, COMMAND_LOG_RETENTION_DAYS, CRON_WARN_THRESHOLD_MIN, CRON_ERR_THRESHOLD_MIN
+
 
 
 class D1Repository:
@@ -173,10 +175,10 @@ class D1Repository:
     def cleanup_old_data(self) -> None:
         try:
             print("[SQLite] Ejecutando limpieza de datos antiguos...")
-            # Limpiamos logs de comandos de más de 7 días
-            self._execute("DELETE FROM command_log WHERE created_at < datetime('now', '-7 days')")
-            # Limpiamos noticias enviadas de más de 3 días
-            self._execute("DELETE FROM sent_news WHERE created_at < datetime('now', '-3 days')")
+            # Limpiamos logs de comandos
+            self._execute(f"DELETE FROM command_log WHERE created_at < datetime('now', '-{COMMAND_LOG_RETENTION_DAYS} days')")
+            # Limpiamos noticias enviadas
+            self._execute(f"DELETE FROM sent_news WHERE created_at < datetime('now', '-{NEWS_RETENTION_DAYS} days')")
             self.connection.commit()
             print("[SQLite] Limpieza completada.")
         except Exception as e:
@@ -199,7 +201,7 @@ class D1Repository:
 
     def get_dashboard_stats(self) -> dict:
         try:
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+            week_ago = (datetime.now(timezone.utc) - timedelta(days=COMMAND_LOG_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
             users = self._execute(
                 "SELECT news_enabled, created_at FROM users"
@@ -220,7 +222,7 @@ class D1Repository:
                 commands_by_day[day] = commands_by_day.get(day, 0) + 1
 
             sent_news = self._execute(
-                "SELECT created_at FROM sent_news WHERE created_at >= ?",
+                "SELECT DISTINCT news_hash, created_at FROM sent_news WHERE created_at >= ?",
                 (week_ago,),
             ).fetchall()
             news_by_day = {}
@@ -251,6 +253,10 @@ class D1Repository:
                 "news_by_day": news_by_day,
                 "new_users_by_day": new_users_by_day,
                 "total_news_sent": self._row_value(total_news, "total"),
+                "news_retention_days": NEWS_RETENTION_DAYS,
+                "command_retention_days": COMMAND_LOG_RETENTION_DAYS,
+                "cron_warn_threshold": CRON_WARN_THRESHOLD_MIN,
+                "cron_err_threshold": CRON_ERR_THRESHOLD_MIN,
                 "last_cron_at": self._row_value(health, "last_cron_at") if health else None,
                 "last_cron_status": self._row_value(health, "last_cron_status") if health else None,
                 "updated_at": self._row_value(health, "updated_at") if health else None,
