@@ -12,8 +12,14 @@ from bot.news_service import RSS_FEEDS, buscar_noticias_with_async_loader
 from bot.price_service import obtener_precios_with_async_loader
 from bot.repositories.d1_binding_repository import D1BindingRepository
 from bot.webhook_service import handle_telegram_update
-from bot.dashboard_html import DASHBOARD_HTML
 from bot.utils.rss_parser import parse_rss_custom
+
+# Cargamos el HTML del dashboard una sola vez al iniciar el worker
+try:
+    with open("public/index.html", "r", encoding="utf-8") as f:
+        DASHBOARD_HTML = f.read()
+except Exception as e:
+    DASHBOARD_HTML = f"<h1>Error al cargar el dashboard: {e}</h1>"
 
 
 class CloudflareTelegramClient:
