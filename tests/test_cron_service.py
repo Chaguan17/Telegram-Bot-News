@@ -15,14 +15,14 @@ class CronServiceTests(unittest.TestCase):
                 {"hash": "new", "message": "new message"},
             ],
             get_news_subscribers=lambda: [1, 2],
-            is_news_sent=lambda news_hash: news_hash == "old",
-            mark_news_sent=marked.append,
+            is_news_sent=lambda news_hash, chat_id: news_hash == "old",
+            mark_news_sent=lambda news_hash, chat_id: marked.append(news_hash),
             send_message=lambda chat_id, message: sent_messages.append((chat_id, message)),
             update_bot_health=health.append,
         )
 
         self.assertEqual(sent_messages, [(1, "new message"), (2, "new message")])
-        self.assertEqual(marked, ["new"])
+        self.assertEqual(marked, ["new", "new"])
         self.assertEqual(health, ["ok"])
         self.assertEqual(result, {"status": "ok", "news_sent": 1, "send_errors": 0})
 
@@ -36,8 +36,8 @@ class CronServiceTests(unittest.TestCase):
         result = run_news_cron(
             buscar_noticias=lambda: [{"hash": "new", "message": "new message"}],
             get_news_subscribers=lambda: [1, 2],
-            is_news_sent=lambda news_hash: False,
-            mark_news_sent=marked.append,
+            is_news_sent=lambda news_hash, chat_id: False,
+            mark_news_sent=lambda news_hash, chat_id: marked.append(news_hash),
             send_message=send_message,
             update_bot_health=lambda status: None,
         )
@@ -61,10 +61,10 @@ class AsyncCronServiceTests(unittest.IsolatedAsyncioTestCase):
         async def get_news_subscribers():
             return [1, 2]
 
-        async def is_news_sent(news_hash):
+        async def is_news_sent(news_hash, chat_id):
             return news_hash == "old"
 
-        async def mark_news_sent(news_hash):
+        async def mark_news_sent(news_hash, chat_id):
             marked.append(news_hash)
 
         async def send_message(chat_id, message):
@@ -83,9 +83,9 @@ class AsyncCronServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(sent_messages, [(1, "new message"), (2, "new message")])
-        self.assertEqual(marked, ["new"])
+        self.assertEqual(marked, ["new", "new"])
         self.assertEqual(health, ["ok"])
-        self.assertEqual(result, {"status": "ok", "news_sent": 1, "send_errors": 0})
+        self.assertEqual(result, {"status": "ok", "news_processed": 2, "news_sent": 1, "send_errors": 0})
 
     async def test_async_send_failures_do_not_block_other_users_or_marking(self):
         marked = []
@@ -97,14 +97,14 @@ class AsyncCronServiceTests(unittest.IsolatedAsyncioTestCase):
         result = await run_news_cron_async(
             buscar_noticias=lambda: [{"hash": "new", "message": "new message"}],
             get_news_subscribers=lambda: [1, 2],
-            is_news_sent=lambda news_hash: False,
-            mark_news_sent=marked.append,
+            is_news_sent=lambda news_hash, chat_id: False,
+            mark_news_sent=lambda news_hash, chat_id: marked.append(news_hash),
             send_message=send_message,
             update_bot_health=lambda status: None,
         )
 
         self.assertEqual(marked, ["new"])
-        self.assertEqual(result, {"status": "ok", "news_sent": 1, "send_errors": 1})
+        self.assertEqual(result, {"status": "ok", "news_processed": 1, "news_sent": 1, "send_errors": 1})
 
 
 if __name__ == "__main__":

@@ -13,7 +13,10 @@ TIMEZONE_OPTIONS = [
 
 
 def command_from_text(text: str) -> str:
-    return (text or "").split()[0].split("@", 1)[0].lower()
+    parts = (text or "").split()
+    if not parts:
+        return ""
+    return parts[0].split("@", 1)[0].lower()
 
 
 def help_text(*, is_admin: bool = False) -> str:

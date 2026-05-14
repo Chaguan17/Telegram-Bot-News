@@ -1,29 +1,14 @@
-import requests
-import feedparser
+# bot/services.py
+# Cleanup: Removed 'requests' as it's not supported in Cloudflare Workers.
+# The worker now uses the provided async loaders (js.fetch).
 
-from bot.market_service import DEFAULT_TIMEZONE, obtener_estado_mercados
-from bot.news_service import KEYWORDS, RSS_FEEDS, buscar_noticias_with_loader, hash_string
-from bot.price_service import format_prices
-
-tz = DEFAULT_TIMEZONE
-
+from bot.market_service import obtener_estado_mercados
 
 def obtener_precios() -> str:
-    try:
-        # Volvemos a la API principal pero con símbolos específicos y User-Agent
-        url = "https://api.binance.com/api/v3/ticker/price?symbols=[\"BTCUSDT\",\"ETHUSDT\",\"BNBUSDT\"]"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            return f"❌ Binance (Error {response.status_code}). Inténtalo en unos minutos."
-            
-        return format_prices(response.json())
-    except Exception as e:
-        print(f"Error Binance: {e}")
-        return "❌ Error al conectar con Binance API."
-
+    # Esta función ya no se usa directamente en el Worker (se usa el loader),
+    # pero la dejamos como stub por si alguien la importa.
+    return "❌ Función obsoleta. Use el loader asíncrono."
 
 def buscar_noticias() -> list:
-    """Devuelve una lista de diccionarios con noticias de alto impacto."""
-    return buscar_noticias_with_loader(lambda url: feedparser.parse(url).entries)
+    # Esta función ya no se usa directamente en el Worker.
+    return []

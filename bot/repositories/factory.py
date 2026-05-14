@@ -3,10 +3,9 @@ import sqlite3
 from pathlib import Path
 
 from bot.repositories.d1_repository import D1Repository
-from bot.repositories.supabase_repository import SupabaseRepository, create_supabase_client
 
 
-DEFAULT_BACKEND = "supabase"
+DEFAULT_BACKEND = "d1"
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "cloudflare" / "d1" / "schema.sql"
 
 
@@ -23,12 +22,8 @@ def create_d1_sqlite_connection(database_path: str | None = None):
     return connection
 
 
-def create_repository(backend: str | None = None, *, supabase_client=None, d1_connection=None):
+def create_repository(backend: str | None = None, *, d1_connection=None):
     selected = (backend or os.getenv("BOT_DB_BACKEND", DEFAULT_BACKEND)).strip().lower()
-
-    if selected == "supabase":
-        client = supabase_client if supabase_client is not None else create_supabase_client()
-        return SupabaseRepository(client)
 
     if selected in {"d1", "sqlite", "d1-sqlite"}:
         connection = d1_connection if d1_connection is not None else create_d1_sqlite_connection()

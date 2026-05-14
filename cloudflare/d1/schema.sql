@@ -9,8 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sent_news (
-    news_hash TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    news_hash TEXT NOT NULL,
+    chat_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (news_hash, chat_id)
 );
 
 CREATE TABLE IF NOT EXISTS command_log (

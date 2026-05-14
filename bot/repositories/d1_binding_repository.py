@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from bot.config import NEWS_RETENTION_DAYS, COMMAND_LOG_RETENTION_DAYS, CRON_WARN_THRESHOLD_MIN, CRON_ERR_THRESHOLD_MIN
+
 
 
 class D1BindingRepository:
@@ -9,6 +11,10 @@ class D1BindingRepository:
 
     @staticmethod
     def _results(result):
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
         if isinstance(result, dict):
             return result.get("results", [])
         return getattr(result, "results", [])
@@ -17,9 +23,18 @@ class D1BindingRepository:
     def _value(row, key: str, default=None):
         if row is None:
             return default
+        # Si row es un dict (ya convertido por to_py)
         if isinstance(row, dict):
             return row.get(key, default)
-        return getattr(row, key, default)
+        # Si es un PyProxy (objeto JS), intentamos acceder como atributo
+        try:
+            val = getattr(row, key, default)
+            # Si el valor obtenido es otro Proxy, intentamos convertirlo
+            if hasattr(val, "to_py"):
+                return val.to_py()
+            return val
+        except Exception:
+            return default
 
     async def _run(self, sql: str, *params):
         print(f"[D1] RUN: {sql} | PARAMS: {params}")
@@ -36,7 +51,19 @@ class D1BindingRepository:
         statement = self.db.prepare(sql)
         if params:
             statement = statement.bind(*params)
-        return await statement.first()
+        res = await statement.first()
+        
+        # En Cloudflare Workers (Pyodide), res puede ser un PyProxy que represente null
+        if res is None:
+            return None
+            
+        try:
+            py_res = res.to_py()
+            # Si to_py devuelve None o un diccionario vacío, tratamos como No Result
+            return py_res if py_res is not None else None
+        except (AttributeError, Exception):
+            # Fallback por si res no tiene to_py pero es un valor directo
+            return res
 
     async def _all(self, sql: str, *params):
         print(f"[D1] ALL: {sql} | PARAMS: {params}")
@@ -44,9 +71,11 @@ class D1BindingRepository:
         if params:
             statement = statement.bind(*params)
         res = await statement.all()
-        if not res.success:
-            print(f"[D1] ERROR: {res.error}")
-        return res
+        try:
+            # Convert JS Proxy to Python dict
+            return res.to_py() if res is not None else {"results": [], "success": True}
+        except (AttributeError, Exception):
+            return res
 
     async def get_all_users(self) -> list:
         try:
@@ -127,22 +156,25 @@ class D1BindingRepository:
             print(f"Error en get_news_subscribers: {e}")
             return []
 
-    async def is_news_sent(self, news_hash: str) -> bool:
+    async def is_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             row = await self._first(
-                "SELECT news_hash FROM sent_news WHERE news_hash = ? LIMIT 1",
+                "SELECT news_hash FROM sent_news WHERE news_hash = ? AND chat_id = ? LIMIT 1",
                 news_hash,
+                int(chat_id),
             )
-            return row is not None
+            # Chequeo ultra-estricto para evitar falsos positivos de PyProxy
+            return bool(row and self._value(row, "news_hash"))
         except Exception as e:
             print(f"Error en is_news_sent: {e}")
             return False
 
-    async def mark_news_sent(self, news_hash: str) -> bool:
+    async def mark_news_sent(self, news_hash: str, chat_id: int) -> bool:
         try:
             await self._run(
-                "INSERT OR IGNORE INTO sent_news (news_hash) VALUES (?)",
+                "INSERT OR IGNORE INTO sent_news (news_hash, chat_id) VALUES (?, ?)",
                 news_hash,
+                chat_id,
             )
             return True
         except Exception as e:
@@ -187,6 +219,17 @@ class D1BindingRepository:
         except Exception as e:
             print(f"Error en log_command: {e}")
 
+    async def cleanup_old_data(self) -> None:
+        try:
+            print("[D1] Ejecutando limpieza de datos antiguos...")
+            # Limpiamos logs de comandos
+            res_commands = await self._run(f"DELETE FROM command_log WHERE created_at < datetime('now', '-{COMMAND_LOG_RETENTION_DAYS} days')")
+            # Limpiamos noticias enviadas (evita spam por amnesia)
+            res_news = await self._run(f"DELETE FROM sent_news WHERE created_at < datetime('now', '-{NEWS_RETENTION_DAYS} days')")
+            print(f"[D1] Limpieza completada.")
+        except Exception as e:
+            print(f"Error en cleanup_old_data: {e}")
+
     async def update_bot_health(self, status: str = "ok") -> None:
         try:
             now = datetime.now(timezone.utc).isoformat()
@@ -204,7 +247,7 @@ class D1BindingRepository:
 
     async def get_dashboard_stats(self) -> dict:
         try:
-            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+            week_ago = (datetime.now(timezone.utc) - timedelta(days=COMMAND_LOG_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
 
             users = self._results(await self._all("SELECT news_enabled, created_at FROM users"))
             total_users = len(users)
@@ -223,7 +266,7 @@ class D1BindingRepository:
                 commands_by_day[day] = commands_by_day.get(day, 0) + 1
 
             sent_news = self._results(await self._all(
-                "SELECT created_at FROM sent_news WHERE created_at >= ?",
+                "SELECT DISTINCT news_hash, created_at FROM sent_news WHERE created_at >= ?",
                 week_ago,
             ))
             news_by_day = {}
@@ -241,9 +284,10 @@ class D1BindingRepository:
             health = await self._first(
                 "SELECT last_cron_at, last_cron_status, updated_at FROM bot_health WHERE id = 1"
             )
-            total_news = await self._first("SELECT COUNT(*) AS total FROM sent_news")
+            total_news = await self._first("SELECT COUNT(DISTINCT news_hash) AS total FROM sent_news")
 
             return {
+                "total": total_users,
                 "total_users": total_users,
                 "subscribed": subscribed,
                 "unsubscribed": total_users - subscribed,
@@ -253,6 +297,10 @@ class D1BindingRepository:
                 "news_by_day": news_by_day,
                 "new_users_by_day": new_users_by_day,
                 "total_news_sent": self._value(total_news, "total", 0),
+                "news_retention_days": NEWS_RETENTION_DAYS,
+                "command_retention_days": COMMAND_LOG_RETENTION_DAYS,
+                "cron_warn_threshold": CRON_WARN_THRESHOLD_MIN,
+                "cron_err_threshold": CRON_ERR_THRESHOLD_MIN,
                 "last_cron_at": self._value(health, "last_cron_at"),
                 "last_cron_status": self._value(health, "last_cron_status"),
                 "updated_at": self._value(health, "updated_at"),
@@ -260,3 +308,10 @@ class D1BindingRepository:
         except Exception as e:
             print(f"Error en get_dashboard_stats: {e}")
             return {"error": str(e)}
+
+    async def get_user_stats(self) -> dict:
+        """Alias for compatibility with the webhook service."""
+        stats = await self.get_dashboard_stats()
+        if "total_users" in stats and "total" not in stats:
+            stats["total"] = stats["total_users"]
+        return stats

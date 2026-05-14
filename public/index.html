@@ -193,14 +193,14 @@
                     ? (Date.now() - new Date(data.last_cron_at).getTime()) / 60000
                     : Infinity;
                 
-                // Umbrales para cron diario (1440 min):
-                // < 25h (1500m) = OK
-                // < 48h (2880m) = Warn
+                const warnLimit = data.cron_warn_threshold || 30;
+                const errLimit = data.cron_err_threshold || 120;
+
                 statusDot.className = 'status-dot ' + (
-                    cronAge < 1500 ? 'ok' : cronAge < 2880 ? 'warn' : 'err'
+                    cronAge < warnLimit ? 'ok' : cronAge < errLimit ? 'warn' : 'err'
                 );
                 document.getElementById('cronStatus').textContent =
-                    cronAge < 1500 ? 'Bot activo' : cronAge < 2880 ? 'Bot inactivo (último cron hace rato)' : 'Bot caído o sin datos de cron';
+                    cronAge < warnLimit ? 'Bot activo' : cronAge < errLimit ? 'Bot inactivo (último cron hace rato)' : 'Bot caído o sin datos de cron';
 
                 const lastEl = document.getElementById('lastCron');
                 if (data.last_cron_at) {
@@ -217,17 +217,18 @@
                         <div class="sub">${data.subscribed} suscritos · ${data.unsubscribed} desuscritos</div>
                     </div>
                     <div class="stat-card">
-                        <div class="label">Comandos (7 días)</div>
+                        <div class="label">Comandos</div>
                         <div class="value">${data.total_commands_week}</div>
+                        <div class="sub">últimos ${data.command_retention_days || 7} días</div>
                     </div>
                     <div class="stat-card">
                         <div class="label">Noticias Enviadas</div>
                         <div class="value">${data.total_news_sent}</div>
-                        <div class="sub">histórico total</div>
+                        <div class="sub">últimos ${data.news_retention_days || 15} días</div>
                     </div>
                     <div class="stat-card">
                         <div class="label">Estado del Bot</div>
-                        <div class="value" style="font-size:1.25rem;color:${cronAge < 1500 ? '#3fb950' : '#d29922'}">${cronAge < 1500 ? '✓ Operativo' : '⚠ Revisar cron'}</div>
+                        <div class="value" style="font-size:1.25rem;color:${cronAge < warnLimit ? '#3fb950' : '#d29922'}">${cronAge < warnLimit ? '✓ Operativo' : '⚠ Revisar cron'}</div>
                     </div>
                 `;
 
